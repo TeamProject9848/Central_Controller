@@ -52,6 +52,8 @@ class FaceConfig:
     PRIORITY_RESULT = AudioConfig.PRIORITY_RESPONSE
     PRIORITY_CRITICAL = AudioConfig.PRIORITY_NAVIGATION_STATUS
     REQUIRED_POSES = ['front', 'left', 'right']
+    MATCH_THRESHOLD = 0.6
+    LIVENESS_REQUIRED = True
 
     # Default prompts keyed by message_key to keep controller mapping simple.
     PROMPTS = {

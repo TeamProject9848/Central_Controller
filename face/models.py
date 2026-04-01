@@ -27,3 +27,4 @@ class RegistrationSession:
     started_at: float = field(default_factory=time)
     metadata: Optional[Dict[str, Any]] = None
     last_prompt_key: Optional[str] = None
+    embeddings: List[Any] = field(default_factory=list)

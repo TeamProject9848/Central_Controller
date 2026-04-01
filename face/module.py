@@ -53,10 +53,13 @@ class FaceModule(FaceInterface):
 
     # FaceInterface contract
     def on_frame(self, frame) -> None:
-        # Placeholder: during registration, re-emit current pose prompt once if not sent.
+        # Registration flow: collect embeddings per pose, then mark complete.
         if self._mode == FaceMode.REGISTRATION and self._registration and self._registration.state == RegistrationState.IN_PROGRESS:
             if self._registration.last_prompt_key is None:
                 self._emit_current_pose_prompt()
+            self._process_registration_frame(frame)
+        elif self._mode == FaceMode.IDENTIFY:
+            self._process_identify_frame(frame)
 
     def start_registration(self, session_id: Optional[str] = None, metadata: Optional[Dict[str, Any]] = None) -> None:
         if self.state.name == 'ERROR':
@@ -128,3 +131,41 @@ class FaceModule(FaceInterface):
             priority=priority,
         )
         self._emit(event)
+
+    def _process_registration_frame(self, frame) -> None:
+        aligned = self._backend.detect_and_align(getattr(frame, 'frame', frame))
+        if aligned is None:
+            return
+        is_live, live_meta = self._backend.evaluate_liveness(aligned, metadata=self._registration.metadata if self._registration else None)
+        if FaceConfig.LIVENESS_REQUIRED and not is_live:
+            self._emit_prompt('registration_retry', self._registration.session_id if self._registration else None, FaceConfig.PRIORITY_GUIDANCE)
+            return
+        embedding = self._backend.extract_embedding(aligned)
+        if embedding is None or self._registration is None:
+            self._emit_prompt('registration_retry', self._registration.session_id if self._registration else None, FaceConfig.PRIORITY_GUIDANCE)
+            return
+        self._registration.embeddings.append(embedding)
+        self.advance_registration_step(success=True)
+        if self._registration and self._registration.state == RegistrationState.COMPLETE and self._gallery_repo:
+            person_id = self._registration.metadata.get('person_id') if self._registration.metadata else 'default'
+            self._gallery_repo.add_or_update(person_id, self._registration.embeddings, metadata=self._registration.metadata)
+
+    def _process_identify_frame(self, frame) -> None:
+        aligned = self._backend.detect_and_align(getattr(frame, 'frame', frame))
+        if aligned is None:
+            return
+        embedding = self._backend.extract_embedding(aligned)
+        if embedding is None:
+            return
+        message_key = 'identify_unknown'
+        priority = FaceConfig.PRIORITY_RESULT
+        if self._gallery_repo:
+            results = self._gallery_repo.search(embedding, top_k=1)
+            if results:
+                person_id, distance = results[0]
+                metadata = {'person_id': person_id, 'distance': distance}
+                if distance <= FaceConfig.MATCH_THRESHOLD:
+                    message_key = 'identify_success'
+                self._emit_event(FaceEventType.IDENTIFIED, message_key=message_key, session_id=None, priority=priority)
+                return
+        self._emit_event(FaceEventType.IDENTIFIED, message_key=message_key, session_id=None, priority=priority)
