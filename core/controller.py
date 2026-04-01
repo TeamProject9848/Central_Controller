@@ -3,13 +3,26 @@ import logging
 import time
 import sys
 from typing import Optional
-from config import CameraConfig, SystemConfig, AudioConfig
-from core.event_bus import EventBus, VisionEvent, VisionEventType, StreamEvent, StreamEventType, IntentEvent, IntentEventType, AudioCommand, AudioCommandType
+from config import CameraConfig, SystemConfig, AudioConfig, FaceConfig
+from core.event_bus import (
+    EventBus,
+    VisionEvent,
+    VisionEventType,
+    StreamEvent,
+    StreamEventType,
+    IntentEvent,
+    IntentEventType,
+    AudioCommand,
+    AudioCommandType,
+    FaceEvent,
+    FaceEventType,
+)
 from core.state_machine import StateMachine, SystemState
 from camera.source import CameraSource
 from camera.buffer import FrameBuffer, TimestampedFrame
 from audio.queue import AudioQueue
 from interfaces.base import BaseModule
+from interfaces.face_interface import FaceInterface
 logger = logging.getLogger(__name__)
 
 class CentralController:
@@ -23,6 +36,7 @@ class CentralController:
         self._vision_module = None
         self._audio_module = None
         self._input_module = None
+        self._face_module: Optional[FaceInterface] = None
         self._running = False
         self._main_thread: Optional[threading.Thread] = None
         self._clear_frame_count = 0
@@ -46,6 +60,11 @@ class CentralController:
         self._input_module = module
         module.set_event_callback(self._event_bus.post)
         logger.info(f'Input module registered: {module.module_name}')
+
+    def register_face_module(self, module: FaceInterface):
+        self._face_module = module
+        module.set_event_callback(self._event_bus.post)
+        logger.info(f'Face module registered: {module.module_name}')
 
     def start(self, blocking: bool=True):
         if self._running:
@@ -112,6 +131,11 @@ class CentralController:
                 self._vision_module.on_frame(frame)
             except Exception as e:
                 logger.error(f'Vision module on_frame raised: {e}', exc_info=True)
+        if self._face_module and self._face_module.is_running:
+            try:
+                self._face_module.on_frame(frame)
+            except Exception as e:
+                logger.error(f'Face module on_frame raised: {e}', exc_info=True)
         if self._input_module and self._input_module.is_running and (current_state not in (SystemState.ALERT, SystemState.ACTIVE_WALK_OVERRIDE)):
             try:
                 if hasattr(self._input_module, 'on_frame'):
@@ -124,6 +148,7 @@ class CentralController:
         self._event_bus.register_handler(VisionEvent, self._on_vision_event)
         self._event_bus.register_handler(StreamEvent, self._on_stream_event)
         self._event_bus.register_handler(IntentEvent, self._on_intent_event)
+        self._event_bus.register_handler(FaceEvent, self._on_face_event)
         logger.debug('Event handlers registered')
 
     def _on_risk_event(self, event: VisionEvent):
@@ -187,6 +212,15 @@ class CentralController:
                 logger.error(f'Intent handler for {event.event_type.name} raised: {e}', exc_info=True)
         else:
             logger.warning(f'No handler for intent: {event.event_type.name}')
+
+    def _on_face_event(self, event: FaceEvent):
+        message_key = event.message_key or ''
+        text = FaceConfig.PROMPTS.get(message_key, message_key)
+        if not text:
+            logger.debug('FaceEvent ignored - no message_key/prompt text provided')
+            return
+        priority = event.priority if event.priority is not None else self._face_priority_for_event(event.event_type)
+        self._post_audio(AudioCommandType.SPEAK, text=text, priority=priority)
 
     def _handle_start_navigation(self):
         if self._state_machine.can_transition_to(SystemState.NAVIGATION):
@@ -261,6 +295,15 @@ class CentralController:
             return 'OBSTACLE_MID'
         else:
             return 'OBSTACLE_NEAR'
+
+    def _face_priority_for_event(self, event_type: FaceEventType) -> int:
+        if event_type == FaceEventType.PROMPT or event_type == FaceEventType.REGISTRATION_PROGRESS:
+            return FaceConfig.PRIORITY_GUIDANCE
+        if event_type == FaceEventType.IDENTIFIED or event_type == FaceEventType.REGISTRATION_COMPLETE:
+            return FaceConfig.PRIORITY_RESULT
+        if event_type == FaceEventType.REGISTRATION_FAILED:
+            return FaceConfig.PRIORITY_CRITICAL
+        return AudioConfig.PRIORITY_RESPONSE
 
     def _register_state_hooks(self):
         sm = self._state_machine
@@ -356,7 +399,7 @@ class CentralController:
                 module.stop()
 
     def _guest_modules(self):
-        return [self._vision_module, self._audio_module, self._input_module]
+        return [self._vision_module, self._audio_module, self._input_module, self._face_module]
 
     def _health_check(self):
         age = self._camera_source.last_frame_age_ms

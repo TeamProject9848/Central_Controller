@@ -44,3 +44,22 @@ class SystemConfig:
     LOG_FILE = 'logs/controller.log'
     DEBUG_DISPLAY = True
     DEBUG_WINDOW_NAME = 'Controller Debug'
+
+
+class FaceConfig:
+    # Prompt priorities (relative to AudioConfig)
+    PRIORITY_GUIDANCE = AudioConfig.PRIORITY_DESCRIPTION
+    PRIORITY_RESULT = AudioConfig.PRIORITY_RESPONSE
+    PRIORITY_CRITICAL = AudioConfig.PRIORITY_NAVIGATION_STATUS
+
+    # Default prompts keyed by message_key to keep controller mapping simple.
+    PROMPTS = {
+        'registration_start': 'Starting face registration. Look straight ahead.',
+        'registration_left': 'Please turn your head to the left.',
+        'registration_right': 'Please turn your head to the right.',
+        'registration_retry': 'Capture was unclear, please hold still and try again.',
+        'registration_complete': 'Face registration complete.',
+        'registration_failed': 'Face registration failed. Please try again.',
+        'identify_success': 'Identity confirmed.',
+        'identify_unknown': 'Face not recognized.',
+    }
