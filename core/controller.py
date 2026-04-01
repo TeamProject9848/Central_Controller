@@ -378,6 +378,13 @@ class CentralController:
         self._audio_queue.unlock_audio()
         if self._input_module and self._input_module.is_suspended:
             self._input_module.resume()
+        if self._pending_face_prompt:
+            message_key, priority, session_id = self._pending_face_prompt
+            text = FaceConfig.PROMPTS.get(message_key, message_key)
+            if text:
+                self._last_face_prompt = (session_id, message_key)
+                self._post_audio(AudioCommandType.SPEAK, text=text, priority=priority)
+            self._pending_face_prompt = None
 
     def _on_enter_override(self):
         self._apply_vision_level()
