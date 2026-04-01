@@ -24,6 +24,9 @@ class IntentEventType(Enum):
     REQUEST_CAPTION = auto()
     REQUEST_OCR = auto()
     TOGGLE_OVERRIDE = auto()
+    START_FACE_REGISTRATION = auto()
+    CANCEL_FACE_REGISTRATION = auto()
+    IDENTIFY_FACE = auto()
     UNKNOWN = auto()
 
 class AudioCommandType(Enum):
@@ -93,6 +96,9 @@ EVENT_PRIORITY = {
     IntentEventType.STOP_NAVIGATION: 4,
     StreamEventType.RECONNECTING: 5,
     StreamEventType.CONNECTED: 5,
+    IntentEventType.START_FACE_REGISTRATION: 6,
+    IntentEventType.CANCEL_FACE_REGISTRATION: 6,
+    IntentEventType.IDENTIFY_FACE: 6,
     FaceEventType.REGISTRATION_FAILED: 5,
     FaceEventType.PROMPT: 6,
     FaceEventType.IDENTIFIED: 6,

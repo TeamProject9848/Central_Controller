@@ -51,6 +51,7 @@ class FaceConfig:
     PRIORITY_GUIDANCE = AudioConfig.PRIORITY_DESCRIPTION
     PRIORITY_RESULT = AudioConfig.PRIORITY_RESPONSE
     PRIORITY_CRITICAL = AudioConfig.PRIORITY_NAVIGATION_STATUS
+    REQUIRED_POSES = ['front', 'left', 'right']
 
     # Default prompts keyed by message_key to keep controller mapping simple.
     PROMPTS = {
