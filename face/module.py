@@ -7,6 +7,7 @@ from face.backend.dummy import DummyFaceBackend
 from face.gallery_repo import FaceGalleryRepo
 from face.models import FaceMode, RegistrationSession, RegistrationState
 from config import FaceConfig
+from core.event_bus import FaceEventType
 
 logger = logging.getLogger(__name__)
 
@@ -71,6 +72,7 @@ class FaceModule(FaceInterface):
         if self._registration and (session_id is None or session_id == self._registration.session_id):
             self._registration.state = RegistrationState.CANCELLED
             self._emit_prompt('registration_failed', self._registration.session_id, FaceConfig.PRIORITY_CRITICAL)
+            self._registration.last_prompt_key = None
         self._mode = FaceMode.IDLE
         self._registration = None
 
@@ -93,10 +95,11 @@ class FaceModule(FaceInterface):
         if not success:
             self._emit_prompt('registration_retry', self._registration.session_id, FaceConfig.PRIORITY_GUIDANCE)
             return
+        from core.event_bus import FaceEventType  # local import to avoid circular dep
         self._registration.current_index += 1
         if self._registration.current_index >= len(self._registration.required_poses):
             self._registration.state = RegistrationState.COMPLETE
-            self._emit_prompt('registration_complete', self._registration.session_id, FaceConfig.PRIORITY_RESULT)
+            self._emit_event(FaceEventType.REGISTRATION_COMPLETE, message_key='registration_complete', priority=FaceConfig.PRIORITY_RESULT)
             self._mode = FaceMode.IDLE
             return
         self._registration.last_prompt_key = None
@@ -112,10 +115,13 @@ class FaceModule(FaceInterface):
         self._emit_prompt(message_key, self._registration.session_id, FaceConfig.PRIORITY_GUIDANCE)
 
     def _emit_prompt(self, message_key: str, session_id: Optional[str], priority: int) -> None:
+        self._emit_event(FaceEventType.PROMPT, message_key=message_key, session_id=session_id, priority=priority)
+
+    def _emit_event(self, event_type, message_key: Optional[str], session_id: Optional[str], priority: int) -> None:
         from core.event_bus import FaceEvent, FaceEventType  # local import to avoid circular dep
 
         event = FaceEvent(
-            event_type=FaceEventType.PROMPT,
+            event_type=event_type,
             message_key=message_key,
             session_id=session_id,
             metadata={'registration_state': self._registration.state.name if self._registration else None},
