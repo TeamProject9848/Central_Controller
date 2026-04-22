@@ -182,9 +182,10 @@ class DepthEstimator:
             raw_score  = self._get_depth_score(frame, box)
             depth_zone = self._score_to_zone(raw_score)
             self._completed += 1
+            raw_display = f"{raw_score:.1f}" if raw_score is not None else "N/A"
             logger.debug(
                 f"MiDaS tracker={tracker_id} "
-                f"raw={raw_score:.1f if raw_score else 'N/A'} "
+                f"raw={raw_display} "
                 f"zone={depth_zone}"
             )
         except Exception as e:
