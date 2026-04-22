@@ -85,6 +85,9 @@ class EventBus:
         logger.debug(f'Handler registered for {event_type.__name__}')
 
     def post(self, event):
+        if isinstance(event, VisionEvent):
+            zone = event.depth_zone if event.depth_zone is not None else 'N/A'
+            logger.info(f'VisionEvent: {event.event_type.name} (confidence={event.confidence:.2f}, zone={zone})')
         if isinstance(event, VisionEvent) and event.event_type == VisionEventType.RISK:
             logger.warning(f'RISK EVENT — direct callback firing | class={event.hazard_class} | confidence={event.confidence:.2f} | depth={event.depth_zone}')
             if self._risk_callback:

@@ -36,7 +36,17 @@ class CentralController:
     def register_vision_module(self, module):
         self._vision_module = module
         module.set_event_callback(self._event_bus.post)
-        logger.info(f'Vision module registered: {module.module_name}')
+        
+        # Route semantic results (caption/OCR) to AudioQueue as SPEAK commands
+        module.set_semantic_result_callback(
+            lambda text: self._post_audio(
+                AudioCommandType.SPEAK,
+                text=text,
+                priority=AudioConfig.PRIORITY_RESPONSE
+            )
+        )
+        
+        logger.info(f"Vision module registered: {module.module_name}")
 
     def register_audio_module(self, module):
         self._audio_module = module
@@ -360,7 +370,7 @@ class CentralController:
 
     def _health_check(self):
         age = self._camera_source.last_frame_age_ms
-        if age > SystemConfig.STREAM_TIMEOUT_SEC * 1000:
+        if age > CameraConfig.STREAM_TIMEOUT_SEC * 1000:
             logger.warning(f'No frame received for {age:.0f}ms — stream may be lost')
         for module in self._guest_modules():
             if module is not None and (not module.is_healthy):

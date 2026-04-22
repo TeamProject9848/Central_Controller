@@ -73,6 +73,7 @@ class StateMachine:
             self._state = new_state
             self._state_entered_at = time()
             self._history.append((prev_state, new_state, time(), reason))
+            logger.info(f'STATE: {prev_state.name} → {new_state.name}')
             logger.info(f"STATE: {prev_state.name} → {new_state.name} | reason='{reason}' | vision={self.vision_level}")
             self._fire_callbacks(self._on_enter_callbacks[new_state], f'on_enter:{new_state.name}')
         return True

@@ -1,5 +1,5 @@
 class CameraConfig:
-    PHONE_IP = '192.168.1.100'
+    PHONE_IP = '192.168.1.35'
     PHONE_PORT = 8080
     STREAM_URL = f'http://{PHONE_IP}:{PHONE_PORT}/video'
     SNAPSHOT_URL = f'http://{PHONE_IP}:{PHONE_PORT}/shot.jpg'
@@ -13,7 +13,7 @@ class CameraConfig:
 class VisionConfig:
     SENTINEL_FPS = 30
     SENTINEL_MOTION_THRESHOLD = 25
-    SENTINEL_MOTION_AREA_RATIO = 0.02
+    SENTINEL_MOTION_AREA_RATIO = 0.005  # drop from 0.02 to 0.005
     SAFETY_FPS = 5
     SAFETY_FPS_OVERRIDE = 10
     YOLO_CONFIDENCE = 0.5
@@ -25,6 +25,7 @@ class VisionConfig:
     DEPTH_NEAR_THRESHOLD = 0.3
     DEPTH_MID_THRESHOLD = 0.6
     SEMANTIC_TASK_TIMEOUT_SEC = 10.0
+    OBJECT_MODEL_PATH = "yolov8m.pt"
 
 class AudioConfig:
     PRIORITY_ALERT = 0
@@ -44,3 +45,4 @@ class SystemConfig:
     LOG_FILE = 'logs/controller.log'
     DEBUG_DISPLAY = True
     DEBUG_WINDOW_NAME = 'Controller Debug'
+
