@@ -3,26 +3,13 @@ import logging
 import time
 import sys
 from typing import Optional
-from config import CameraConfig, SystemConfig, AudioConfig, FaceConfig
-from core.event_bus import (
-    EventBus,
-    VisionEvent,
-    VisionEventType,
-    StreamEvent,
-    StreamEventType,
-    IntentEvent,
-    IntentEventType,
-    AudioCommand,
-    AudioCommandType,
-    FaceEvent,
-    FaceEventType,
-)
+from config import CameraConfig, SystemConfig, AudioConfig
+from core.event_bus import EventBus, VisionEvent, VisionEventType, StreamEvent, StreamEventType, IntentEvent, IntentEventType, AudioCommand, AudioCommandType
 from core.state_machine import StateMachine, SystemState
 from camera.source import CameraSource
 from camera.buffer import FrameBuffer, TimestampedFrame
 from audio.queue import AudioQueue
 from interfaces.base import BaseModule
-from interfaces.face_interface import FaceInterface
 logger = logging.getLogger(__name__)
 
 class CentralController:
@@ -36,9 +23,6 @@ class CentralController:
         self._vision_module = None
         self._audio_module = None
         self._input_module = None
-        self._face_module: Optional[FaceInterface] = None
-        self._last_face_prompt: Optional[tuple[str, Optional[str]]] = None  # (session_id, message_key)
-        self._pending_face_prompt: Optional[tuple[str, int, Optional[str]]] = None  # (message_key, priority, session_id)
         self._running = False
         self._main_thread: Optional[threading.Thread] = None
         self._clear_frame_count = 0
@@ -72,11 +56,6 @@ class CentralController:
         self._input_module = module
         module.set_event_callback(self._event_bus.post)
         logger.info(f'Input module registered: {module.module_name}')
-
-    def register_face_module(self, module: FaceInterface):
-        self._face_module = module
-        module.set_event_callback(self._event_bus.post)
-        logger.info(f'Face module registered: {module.module_name}')
 
     def start(self, blocking: bool=True):
         if self._running:
@@ -143,11 +122,6 @@ class CentralController:
                 self._vision_module.on_frame(frame)
             except Exception as e:
                 logger.error(f'Vision module on_frame raised: {e}', exc_info=True)
-        if self._face_module and self._face_module.is_running:
-            try:
-                self._face_module.on_frame(frame)
-            except Exception as e:
-                logger.error(f'Face module on_frame raised: {e}', exc_info=True)
         if self._input_module and self._input_module.is_running and (current_state not in (SystemState.ALERT, SystemState.ACTIVE_WALK_OVERRIDE)):
             try:
                 if hasattr(self._input_module, 'on_frame'):
@@ -160,7 +134,6 @@ class CentralController:
         self._event_bus.register_handler(VisionEvent, self._on_vision_event)
         self._event_bus.register_handler(StreamEvent, self._on_stream_event)
         self._event_bus.register_handler(IntentEvent, self._on_intent_event)
-        self._event_bus.register_handler(FaceEvent, self._on_face_event)
         logger.debug('Event handlers registered')
 
     def _on_risk_event(self, event: VisionEvent):
@@ -215,7 +188,7 @@ class CentralController:
             if event.event_type not in (IntentEventType.STOP_NAVIGATION,):
                 logger.debug(f'Intent {event.event_type.name} ignored — in OVERRIDE mode')
                 return
-        handlers = {IntentEventType.START_NAVIGATION: self._handle_start_navigation, IntentEventType.STOP_NAVIGATION: self._handle_stop_navigation, IntentEventType.REQUEST_CAPTION: self._handle_request_caption, IntentEventType.REQUEST_OCR: self._handle_request_ocr, IntentEventType.START_FACE_REGISTRATION: self._handle_start_face_registration, IntentEventType.CANCEL_FACE_REGISTRATION: self._handle_cancel_face_registration, IntentEventType.IDENTIFY_FACE: self._handle_identify_face, IntentEventType.UNKNOWN: self._handle_unknown_intent}
+        handlers = {IntentEventType.START_NAVIGATION: self._handle_start_navigation, IntentEventType.STOP_NAVIGATION: self._handle_stop_navigation, IntentEventType.REQUEST_CAPTION: self._handle_request_caption, IntentEventType.REQUEST_OCR: self._handle_request_ocr, IntentEventType.UNKNOWN: self._handle_unknown_intent}
         handler = handlers.get(event.event_type)
         if handler:
             try:
@@ -224,24 +197,6 @@ class CentralController:
                 logger.error(f'Intent handler for {event.event_type.name} raised: {e}', exc_info=True)
         else:
             logger.warning(f'No handler for intent: {event.event_type.name}')
-
-    def _on_face_event(self, event: FaceEvent):
-        message_key = event.message_key or ''
-        text = FaceConfig.PROMPTS.get(message_key, message_key)
-        if not text:
-            logger.debug('FaceEvent ignored - no message_key/prompt text provided')
-            return
-        priority = event.priority if event.priority is not None else self._face_priority_for_event(event.event_type)
-        if self._state_machine.state == SystemState.ALERT:
-            self._pending_face_prompt = (message_key, priority, event.session_id)
-            logger.debug('Face prompt deferred due to ALERT state')
-            return
-        last_key = self._last_face_prompt
-        if last_key and last_key[0] == event.session_id and last_key[1] == message_key:
-            logger.debug('Duplicate face prompt skipped')
-            return
-        self._last_face_prompt = (event.session_id, message_key)
-        self._post_audio(AudioCommandType.SPEAK, text=text, priority=priority)
 
     def _handle_start_navigation(self):
         if self._state_machine.can_transition_to(SystemState.NAVIGATION):
@@ -275,25 +230,7 @@ class CentralController:
             else:
                 logger.warning('OCR requested but no vision module registered')
         else:
-            logger.debug('OCR request ignored - cannot enter SEMANTIC state now')
-
-    def _handle_start_face_registration(self):
-        if not self._face_module:
-            logger.warning('Face registration requested but no face module registered')
-            return
-        self._face_module.start_registration()
-
-    def _handle_cancel_face_registration(self):
-        if not self._face_module:
-            logger.warning('Cancel face registration requested but no face module registered')
-            return
-        self._face_module.cancel_registration()
-
-    def _handle_identify_face(self):
-        if not self._face_module:
-            logger.warning('Identify face requested but no face module registered')
-            return
-        self._face_module.request_identification()
+            logger.debug('OCR request ignored — cannot enter SEMANTIC state now')
 
     def _handle_override_toggle(self):
         current = self._state_machine.state
@@ -334,15 +271,6 @@ class CentralController:
             return 'OBSTACLE_MID'
         else:
             return 'OBSTACLE_NEAR'
-
-    def _face_priority_for_event(self, event_type: FaceEventType) -> int:
-        if event_type == FaceEventType.PROMPT or event_type == FaceEventType.REGISTRATION_PROGRESS:
-            return FaceConfig.PRIORITY_GUIDANCE
-        if event_type == FaceEventType.IDENTIFIED or event_type == FaceEventType.REGISTRATION_COMPLETE:
-            return FaceConfig.PRIORITY_RESULT
-        if event_type == FaceEventType.REGISTRATION_FAILED:
-            return FaceConfig.PRIORITY_CRITICAL
-        return AudioConfig.PRIORITY_RESPONSE
 
     def _register_state_hooks(self):
         sm = self._state_machine
@@ -388,13 +316,6 @@ class CentralController:
         self._audio_queue.unlock_audio()
         if self._input_module and self._input_module.is_suspended:
             self._input_module.resume()
-        if self._pending_face_prompt:
-            message_key, priority, session_id = self._pending_face_prompt
-            text = FaceConfig.PROMPTS.get(message_key, message_key)
-            if text:
-                self._last_face_prompt = (session_id, message_key)
-                self._post_audio(AudioCommandType.SPEAK, text=text, priority=priority)
-            self._pending_face_prompt = None
 
     def _on_enter_override(self):
         self._apply_vision_level()
@@ -445,7 +366,7 @@ class CentralController:
                 module.stop()
 
     def _guest_modules(self):
-        return [self._vision_module, self._audio_module, self._input_module, self._face_module]
+        return [self._vision_module, self._audio_module, self._input_module]
 
     def _health_check(self):
         age = self._camera_source.last_frame_age_ms

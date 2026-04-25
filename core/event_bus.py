@@ -3,7 +3,7 @@ import threading
 import logging
 from dataclasses import dataclass, field
 from enum import Enum, auto
-from typing import Callable, Optional, Dict, Any
+from typing import Callable, Optional
 from time import time
 from config import SystemConfig
 logger = logging.getLogger(__name__)
@@ -24,9 +24,6 @@ class IntentEventType(Enum):
     REQUEST_CAPTION = auto()
     REQUEST_OCR = auto()
     TOGGLE_OVERRIDE = auto()
-    START_FACE_REGISTRATION = auto()
-    CANCEL_FACE_REGISTRATION = auto()
-    IDENTIFY_FACE = auto()
     UNKNOWN = auto()
 
 class AudioCommandType(Enum):
@@ -34,14 +31,6 @@ class AudioCommandType(Enum):
     ALERT = auto()
     STOP = auto()
     CLEAR = auto()
-
-
-class FaceEventType(Enum):
-    PROMPT = auto()
-    IDENTIFIED = auto()
-    REGISTRATION_PROGRESS = auto()
-    REGISTRATION_COMPLETE = auto()
-    REGISTRATION_FAILED = auto()
 
 @dataclass
 class VisionEvent:
@@ -75,40 +64,7 @@ class AudioCommand:
     alert_key: Optional[str] = None
     priority: int = 2
     timestamp: float = field(default_factory=time)
-
-
-@dataclass
-class FaceEvent:
-    event_type: FaceEventType
-    message_key: Optional[str] = None
-    session_id: Optional[str] = None
-    metadata: Optional[Dict[str, Any]] = None
-    priority: int = 5
-    timestamp: float = field(default_factory=time)
-
-
-EVENT_PRIORITY = {
-    VisionEventType.RISK: 0,
-    StreamEventType.LOST: 1,
-    VisionEventType.MOTION: 2,
-    IntentEventType.TOGGLE_OVERRIDE: 3,
-    IntentEventType.START_NAVIGATION: 4,
-    IntentEventType.STOP_NAVIGATION: 4,
-    StreamEventType.RECONNECTING: 5,
-    StreamEventType.CONNECTED: 5,
-    IntentEventType.START_FACE_REGISTRATION: 6,
-    IntentEventType.CANCEL_FACE_REGISTRATION: 6,
-    IntentEventType.IDENTIFY_FACE: 6,
-    FaceEventType.REGISTRATION_FAILED: 5,
-    FaceEventType.PROMPT: 6,
-    FaceEventType.IDENTIFIED: 6,
-    FaceEventType.REGISTRATION_PROGRESS: 6,
-    FaceEventType.REGISTRATION_COMPLETE: 6,
-    IntentEventType.REQUEST_CAPTION: 6,
-    IntentEventType.REQUEST_OCR: 6,
-    IntentEventType.UNKNOWN: 7,
-    VisionEventType.NONE: 8,
-}
+EVENT_PRIORITY = {VisionEventType.RISK: 0, StreamEventType.LOST: 1, VisionEventType.MOTION: 2, IntentEventType.TOGGLE_OVERRIDE: 3, IntentEventType.START_NAVIGATION: 4, IntentEventType.STOP_NAVIGATION: 4, StreamEventType.RECONNECTING: 5, StreamEventType.CONNECTED: 5, IntentEventType.REQUEST_CAPTION: 6, IntentEventType.REQUEST_OCR: 6, IntentEventType.UNKNOWN: 7, VisionEventType.NONE: 8}
 
 class EventBus:
 
