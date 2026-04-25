@@ -1,17 +1,16 @@
 import threading
 import logging
 import queue
-import time
 from typing import Optional
-from dataclasses import dataclass, field
 from config import AudioConfig
 from core.event_bus import AudioCommand, AudioCommandType
+from audio.backend import SpeechBackend, create_backend
 logger = logging.getLogger(__name__)
 ALERT_PHRASES: dict[str, str] = {'OBSTACLE_NEAR': 'Stop. Obstacle ahead.', 'OBSTACLE_MID': 'Caution. Object approaching.', 'PERSON_NEAR': 'Person very close.', 'VEHICLE_NEAR': 'Vehicle nearby. Stop.', 'STREAM_LOST': 'Camera disconnected.', 'STREAM_RECONNECTED': 'Camera reconnected.', 'OVERRIDE_ON': 'Walk mode on.', 'OVERRIDE_OFF': 'Walk mode off.', 'NAVIGATION_START': 'Navigation started.', 'NAVIGATION_STOP': 'Navigation stopped.', 'TASK_CANCELLED': 'Task cancelled.'}
 
 class AudioQueue:
 
-    def __init__(self):
+    def __init__(self, backend: Optional[SpeechBackend] = None):
         self._queue: queue.PriorityQueue = queue.PriorityQueue()
         self._sequence = 0
         self._sequence_lock = threading.Lock()
@@ -21,8 +20,8 @@ class AudioQueue:
         self._locked_to_alerts = False
         self._lock_mode_lock = threading.Lock()
         self._current_command: Optional[AudioCommand] = None
-        self._tts_engine = None
         self._tts_lock = threading.Lock()
+        self._backend: SpeechBackend = backend or create_backend(rate=AudioConfig.TTS_SPEECH_RATE)
         self._played_count = 0
         self._dropped_count = 0
         self._interrupted_count = 0
@@ -43,7 +42,7 @@ class AudioQueue:
         self._interrupt_flag.set()
         if self._playback_thread and self._playback_thread.is_alive():
             self._playback_thread.join(timeout=3.0)
-        self._stop_tts()
+        self._shutdown_backend()
         logger.info('AudioQueue stopped')
 
     def post(self, command: AudioCommand):
@@ -55,12 +54,13 @@ class AudioQueue:
             return
         if command.command_type == AudioCommandType.STOP:
             self._interrupt_flag.set()
-            logger.debug('STOP command received — interrupting current audio')
+            self._stop_backend()
+            logger.debug('STOP command received - interrupting current audio')
             return
         if command.command_type == AudioCommandType.CLEAR:
             self._clear_queue()
             self._interrupt_flag.set()
-            logger.debug('CLEAR command received — queue flushed')
+            logger.debug('CLEAR command received - queue flushed')
             return
         if AudioConfig.INTERRUPT_ON_HIGHER_PRIORITY and self._current_command is not None and (command.priority < self._current_command.priority):
             self._interrupt_flag.set()
@@ -83,7 +83,7 @@ class AudioQueue:
     def unlock_audio(self):
         with self._lock_mode_lock:
             self._locked_to_alerts = False
-        logger.info('AudioQueue unlocked — all priorities accepted')
+        logger.info('AudioQueue unlocked - all priorities accepted')
 
     def get_stats(self) -> dict:
         return {'played': self._played_count, 'dropped': self._dropped_count, 'interrupted': self._interrupted_count, 'queue_size': self._queue.qsize(), 'locked': self._locked_to_alerts, 'playing': self._current_command is not None}
@@ -123,52 +123,27 @@ class AudioQueue:
 
     def _speak(self, text: str):
         if self._interrupt_flag.is_set():
-            logger.debug('Speech skipped — interrupt flag set before playback')
-            return
-        engine = self._get_tts_engine()
-        if engine is None:
-            print(f'[AUDIO] {text}')
+            logger.debug('Speech skipped - interrupt flag set before playback')
             return
         try:
             with self._tts_lock:
                 if self._interrupt_flag.is_set():
                     return
-                engine.setProperty('rate', AudioConfig.TTS_SPEECH_RATE)
-                engine.say(text)
-                engine.startLoop(False)
-                while engine.isBusy():
-                    if self._interrupt_flag.is_set():
-                        engine.stop()
-                        logger.debug('TTS interrupted mid-speech')
-                        break
-                    time.sleep(0.05)
-                engine.endLoop()
+                self._backend.speak(text, self._interrupt_flag, AudioConfig.TTS_SPEECH_RATE)
         except Exception as e:
             logger.error(f'TTS error: {e}', exc_info=True)
 
-    def _get_tts_engine(self):
-        if self._tts_engine is not None:
-            return self._tts_engine
+    def _stop_backend(self):
         try:
-            import pyttsx3
-            engine = pyttsx3.init()
-            engine.setProperty('rate', AudioConfig.TTS_SPEECH_RATE)
-            self._tts_engine = engine
-            logger.info('TTS engine initialized (pyttsx3)')
-            return engine
-        except ImportError:
-            logger.warning('pyttsx3 not installed — using console fallback. Install with: pip install pyttsx3')
-            return None
-        except Exception as e:
-            logger.warning(f'TTS engine init failed: {e} — using console fallback')
-            return None
+            self._backend.stop()
+        except Exception:
+            pass
 
-    def _stop_tts(self):
-        if self._tts_engine is not None:
-            try:
-                self._tts_engine.stop()
-            except Exception:
-                pass
+    def _shutdown_backend(self):
+        try:
+            self._backend.shutdown()
+        except Exception:
+            pass
 
     def _clear_queue(self):
         cleared = 0
@@ -179,7 +154,7 @@ class AudioQueue:
             except queue.Empty:
                 break
         if cleared > 0:
-            logger.info(f'AudioQueue flushed — {cleared} commands dropped')
+            logger.info(f'AudioQueue flushed - {cleared} commands dropped')
 
     def _flush_non_alerts(self):
         kept = []
