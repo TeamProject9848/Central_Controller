@@ -130,8 +130,12 @@ class EventBus:
 
     def post(self, event):
         if isinstance(event, VisionEvent):
-            zone = event.depth_zone if event.depth_zone is not None else 'N/A'
-            logger.info(f'VisionEvent: {event.event_type.name} (confidence={event.confidence:.2f}, zone={zone})')
+            if event.event_type != VisionEventType.RISK:
+                zone = event.depth_zone if event.depth_zone is not None else 'N/A'
+                # Moved from logger.info to logger.debug
+                logger.debug(f'VisionEvent: {event.event_type.name} (confidence={event.confidence:.2f}, zone={zone})')
+        
+        # Keep RISK events highly visible
         if isinstance(event, VisionEvent) and event.event_type == VisionEventType.RISK:
             logger.warning(f'RISK EVENT — direct callback firing | class={event.hazard_class} | confidence={event.confidence:.2f} | depth={event.depth_zone}')
             if self._risk_callback:
@@ -140,6 +144,7 @@ class EventBus:
                 logger.error('RISK event posted but no risk callback registered! Falling back to queue. Register callback before starting.')
                 self._enqueue(event, priority=0)
             return
+            
         event_subtype = getattr(event, 'event_type', None)
         priority = EVENT_PRIORITY.get(event_subtype, 5)
         self._enqueue(event, priority)

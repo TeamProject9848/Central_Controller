@@ -184,7 +184,7 @@ class VisionManager(VisionInterface):
             safety:   REACTIVE mode (only fires on motion, frees CPU for semantic)
             semantic: task already started by request_caption/request_ocr
         """
-        logger.info(f"Vision level → {level}")
+        logger.info(f"Vision level -> {level}")
 
         if level == LEVEL_SENTINEL_ONLY:
             if self._sentinel:
@@ -346,6 +346,19 @@ class VisionManager(VisionInterface):
             "semantic":     self._semantic.get_stats() if self._semantic  else None,
         })
         return base
+
+    def get_debug_frame(self) -> Optional[np.ndarray]:
+        """Returns the YOLO-annotated frame if available, otherwise the raw frame."""
+        if self._safety and hasattr(self._safety, '_annotated_frame'):
+            with getattr(self._safety, '_annotated_lock', threading.Lock()):
+                if self._safety._annotated_frame is not None:
+                    return self._safety._annotated_frame.copy()
+        
+        # Fallback to the latest raw frame
+        with self._frame_lock:
+            if self._latest_frame is not None:
+                return self._latest_frame.copy()
+        return None
 
 
 
