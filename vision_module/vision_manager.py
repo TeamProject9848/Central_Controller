@@ -154,61 +154,43 @@ class VisionManager(VisionInterface):
 
         self._frame_event.set()
 
-    def _apply_vision_level(self, level: str):
+        # --- THE FIX: Prevent Pipeline Starvation ---
+        # When in continuous mode, Sentinel's motion callback is disabled.
+        # We must explicitly feed fresh frames to the SafetyPipeline.
+        # This is safe because push_frame() is non-blocking in continuous mode.
+        if self._safety and self._safety._mode == MODE_CONTINUOUS:
+            self._safety.push_frame(raw)
+
+    # Update this exact line:
+    def _apply_vision_level(self, level: str, state_context: str = ""):
         """
         Configure sub-components based on the vision level set by controller.
-
-        Called after every state transition. Maps level string to concrete
-        sentinel callback and safety pipeline mode.
-
-        Vision level → behaviour:
-          sentinel_only           IDLE
-            sentinel: runs, on_motion_frame = safety.push_frame (reactive)
-            safety:   REACTIVE mode, paused internally (won't emit unless motion)
-                      Actually suspend safety in this level — sentinel handles motion,
-                      safety only wakes on motion callback
-            semantic: idle
-
-          sentinel_and_safety     NAVIGATION / ALERT
-            sentinel: runs, on_motion_frame = None (YOLO runs on its own schedule)
-            safety:   CONTINUOUS mode at normal FPS
-            semantic: idle (cancel if running)
-
-          sentinel_and_safety_max OVERRIDE
-            sentinel: runs, on_motion_frame = None
-            safety:   CONTINUOUS mode at override FPS
-            semantic: idle
-
-          sentinel_and_semantic   SEMANTIC
-            sentinel: runs, on_motion_frame = safety.push_frame (guards for hazards)
-            safety:   REACTIVE mode (only fires on motion, frees CPU for semantic)
-            semantic: task already started by request_caption/request_ocr
         """
-        logger.info(f"Vision level -> {level}")
+        logger.info(f"Vision level -> {level}" + (f" [{state_context}]" if state_context else ""))
 
         if level == LEVEL_SENTINEL_ONLY:
             if self._sentinel:
                 self._sentinel.set_on_motion_frame(self._safety.push_frame)
             if self._safety:
-                self._safety.set_mode(MODE_REACTIVE)
+                self._safety.set_mode(MODE_REACTIVE, context=state_context)
 
         elif level == LEVEL_SENTINEL_SAFETY:
             if self._sentinel:
                 self._sentinel.set_on_motion_frame(None)
             if self._safety:
-                self._safety.set_mode(MODE_CONTINUOUS, fps_override=False)
+                self._safety.set_mode(MODE_CONTINUOUS, fps_override=False, context=state_context)
 
         elif level == LEVEL_SENTINEL_MAX:
             if self._sentinel:
                 self._sentinel.set_on_motion_frame(None)
             if self._safety:
-                self._safety.set_mode(MODE_CONTINUOUS, fps_override=True)
+                self._safety.set_mode(MODE_CONTINUOUS, fps_override=True, context=state_context)
 
         elif level == LEVEL_SENTINEL_SEMANTIC:
             if self._sentinel:
                 self._sentinel.set_on_motion_frame(self._safety.push_frame)
             if self._safety:
-                self._safety.set_mode(MODE_REACTIVE)
+                self._safety.set_mode(MODE_REACTIVE, context=state_context)
 
         else:
             logger.warning(f"Unknown vision level: '{level}' — no change")

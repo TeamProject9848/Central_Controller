@@ -114,7 +114,7 @@ class SafetyPipeline:
     # MODE SWITCHING — called by VisionManager on vision level change
     
 
-    def set_mode(self, mode: str, fps_override: bool = False):
+    def set_mode(self, mode: str, fps_override: bool = False, context: str = ""):
         """
         Switch between CONTINUOUS and REACTIVE modes.
 
@@ -132,7 +132,8 @@ class SafetyPipeline:
 
         self._frame_interval = 1.0 / self._target_fps
 
-        logger.info(f"SafetyPipeline mode={mode} fps={self._target_fps}")
+        state_str = f" [{context}]" if context else ""
+        logger.info(f"SafetyPipeline mode={mode} fps={self._target_fps}{state_str}")
 
     
     
@@ -234,18 +235,19 @@ class SafetyPipeline:
                     cached = self._object_depths.get(tracker_id)
                     
                     if cached is None:
-                        # ALWAYS calculate the very first depth for EVERY object
                         needs_update = True
                     else:
-                        # For existing objects, ONLY update if they are a hazard
                         if is_hazard:
                             zone, timestamp, last_area = cached
                             elapsed_ms = (time.time() - timestamp) * 1000
                             
-                            # Heuristic A: Approaching (Area grew by > 10%)
                             if last_area > 0 and current_area > last_area * 1.10:
                                 needs_update = True
-                            # Heuristic B: Distance-based polling
+                                
+                            # --- NEW: Retry stuck or dropped calculations after 500ms ---
+                            elif zone is None and elapsed_ms > 500:
+                                needs_update = True
+                                
                             elif zone == "FAR" and elapsed_ms > 1500:
                                 needs_update = True
                             elif zone in ("MID", "NEAR") and elapsed_ms > 500:
@@ -261,12 +263,22 @@ class SafetyPipeline:
                         self._object_depths[tracker_id] = (None, time.time(), current_area)
 
                 # Fetch the latest depth zone for scoring and labels
+                # Fetch the latest depth zone from cache
                 with self._depths_lock:
                     cached = self._object_depths.get(tracker_id)
                     depth_zone = cached[0] if cached else None
 
+                # Calculate area ratio EARLY
+                area_ratio = current_area / (w * h)
+
+                # Imminent Collision Override
+                if is_hazard and area_ratio > 0.35:
+                    depth_zone = "NEAR"
+
                 # Build label for the debug frame
                 labels.append(f"{class_name} id:{tracker_id} [{depth_zone or 'CALC'}]")
+                
+                
 
                 # --- SCORE CALCULATION ---
                 # Only score objects that are classified as hazards

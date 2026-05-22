@@ -55,10 +55,31 @@ def setup_logging():
     # 3. Apply to root logger
     logging.basicConfig(level=level, handlers=handlers)
 
+
+def print_startup_banner(logger):
+    logger.info("============================================================")
+    logger.info("SYSTEM STATES & VISION MODES EXPLANATION")
+    logger.info("------------------------------------------------------------")
+    logger.info("STATES:")
+    logger.info("  [IDLE]       : User stationary. Vision is REACTIVE (Sentinel motion only).")
+    logger.info("  [NAVIGATION] : User walking. Vision is CONTINUOUS (YOLO @ 5 FPS).")
+    logger.info("  [ALERT]      : Hazard detected! Vision is CONTINUOUS tracking. Audio locked.")
+    logger.info("  [OVERRIDE]   : Max safety mode. Vision is CONTINUOUS (YOLO @ 10 FPS).")
+    logger.info("  [SEMANTIC]   : Caption/OCR running. YOLO paused to free CPU.")
+    logger.info("MODES:")
+    logger.info("  [REACTIVE]   : YOLO sleeps to save battery, wakes only on pixel motion.")
+    logger.info("  [CONTINUOUS] : YOLO runs continuously to track active hazards.")
+    logger.info("============================================================")
+
 def main():
     setup_logging()
     logger = logging.getLogger('main')
+    
+    # --- Add the call here ---
+    print_startup_banner(logger)
+    
     logger.info('Walk Assistance System starting...')
+    # ... rest of main() remains exactly the same
 
     controller = CentralController()
     controller.register_vision_module(VisionManager())  # ← moved here, after controller exists

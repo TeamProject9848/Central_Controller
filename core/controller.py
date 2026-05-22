@@ -421,8 +421,10 @@ class CentralController:
         if self._vision_module is None:
             return
         level = self._state_machine.vision_level
+        state_name = self._state_machine.state.name  # <-- Get the current state
         try:
-            self._vision_module.set_vision_level(level)
+            # Pass the state_name to show up in the brackets
+            self._vision_module.set_vision_level(level, state_name)
         except Exception as e:
             logger.error(f"Failed to set vision level '{level}': {e}", exc_info=True)
 

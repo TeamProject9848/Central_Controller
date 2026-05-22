@@ -123,15 +123,15 @@ class DepthEstimator:
         self._requests += 1
 
         if self._midas is None:
-            # Model unavailable — return None immediately, no thread needed
             callback(tracker_id, None)
             return
 
-        # Try to acquire busy lock without blocking
         acquired = self._busy_lock.acquire(blocking=False)
         if not acquired:
             self._dropped += 1
             logger.debug(f"DepthEstimator busy — dropped request for tracker {tracker_id}")
+            # --- NEW: Fire callback with None so the pipeline knows it failed ---
+            callback(tracker_id, None)
             return
 
         # Run on background thread — release lock when done
