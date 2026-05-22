@@ -1,5 +1,5 @@
 class CameraConfig:
-    PHONE_IP = '192.168.1.35'
+    PHONE_IP = '192.168.1.39'
     PHONE_PORT = 8080
     STREAM_URL = f'http://{PHONE_IP}:{PHONE_PORT}/video'
     SNAPSHOT_URL = f'http://{PHONE_IP}:{PHONE_PORT}/shot.jpg'
@@ -41,8 +41,8 @@ class SystemConfig:
     CONTROLLER_TICK_SEC = 0.033
     WIFI_LATENCY_COMPENSATION_MS = 150
     MAX_FRAME_AGE_MS = 300
-    LOG_LEVEL = 'DEBUG'
-    LOG_FILE = 'logs/controller.log'
+    LOG_LEVEL = 'INFO'
+    LOG_FILE = 'logs/runtime.log'
     DEBUG_DISPLAY = True
     DEBUG_WINDOW_NAME = 'Controller Debug'
 

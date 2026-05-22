@@ -191,12 +191,11 @@ class SafetyPipeline:
         """
         Run one YOLO + ByteTrack + depth pass on a frame.
         Emits RISK or NONE based on debounced result.
-
-        This is the notebook's detect_objects_hybrid() with all
-        audio/state-decision code removed and event emission added.
+        Annotates frame for debug display and uses adaptive MiDaS polling.
         """
         try:
             import supervision as sv
+            import time
 
             self._yolo_runs += 1
 
@@ -208,6 +207,15 @@ class SafetyPipeline:
             best_score  = 0.0
             best_class  = None
             best_depth  = None
+            
+            labels = [] # For supervision annotation
+
+            # --- CLEANUP: Remove stale tracker IDs to prevent memory leaks ---
+            active_trackers = set(tracked.tracker_id)
+            with self._depths_lock:
+                stale_keys = [k for k in self._object_depths.keys() if k not in active_trackers]
+                for k in stale_keys:
+                    del self._object_depths[k]
 
             for xyxy, class_id, tracker_id in zip(
                 tracked.xyxy,
@@ -215,37 +223,79 @@ class SafetyPipeline:
                 tracked.tracker_id
             ):
                 x1, y1, x2, y2 = xyxy
-                area_ratio  = ((x2-x1) * (y2-y1)) / (w * h)
-                bottom_pos  = y2 / h
-                h_score     = (area_ratio * 1.2) + (bottom_pos * 0.8)
+                current_area = (x2 - x1) * (y2 - y1)
+                class_name = self._object_model.model.names[class_id]
+
+                # --- ADAPTIVE MIDAS CACHE LOGIC ---
+                is_hazard = class_name in VisionConfig.HAZARD_CLASSES
+                needs_update = False
 
                 with self._depths_lock:
-                    has_depth = tracker_id in self._object_depths
+                    cached = self._object_depths.get(tracker_id)
+                    
+                    if cached is None:
+                        # ALWAYS calculate the very first depth for EVERY object
+                        needs_update = True
+                    else:
+                        # For existing objects, ONLY update if they are a hazard
+                        if is_hazard:
+                            zone, timestamp, last_area = cached
+                            elapsed_ms = (time.time() - timestamp) * 1000
+                            
+                            # Heuristic A: Approaching (Area grew by > 10%)
+                            if last_area > 0 and current_area > last_area * 1.10:
+                                needs_update = True
+                            # Heuristic B: Distance-based polling
+                            elif zone == "FAR" and elapsed_ms > 1500:
+                                needs_update = True
+                            elif zone in ("MID", "NEAR") and elapsed_ms > 500:
+                                needs_update = True
 
-                if not has_depth:
+                if needs_update:
                     self._depth.request_depth(
                         frame, xyxy, tracker_id,
                         callback=self._on_depth_result
                     )
                     with self._depths_lock:
-                        self._object_depths[tracker_id] = None  # pending
+                        # Mark as pending, store the current area to track growth
+                        self._object_depths[tracker_id] = (None, time.time(), current_area)
 
+                # Fetch the latest depth zone for scoring and labels
                 with self._depths_lock:
-                    depth_zone = self._object_depths.get(tracker_id)
+                    cached = self._object_depths.get(tracker_id)
+                    depth_zone = cached[0] if cached else None
 
-                if depth_zone == "NEAR":
-                    score = 1.0
-                elif depth_zone == "MID":
-                    score = 0.5
-                elif depth_zone == "FAR":
-                    score = h_score * 0.5  
-                else:
-                    score = h_score         
+                # Build label for the debug frame
+                labels.append(f"{class_name} id:{tracker_id} [{depth_zone or 'CALC'}]")
 
-                if score > best_score:
-                    best_score = score
-                    best_class = self._object_model.model.names[class_id]
-                    best_depth = depth_zone
+                # --- SCORE CALCULATION ---
+                # Only score objects that are classified as hazards
+                if is_hazard:
+                    area_ratio  = current_area / (w * h)
+                    bottom_pos  = y2 / h
+                    h_score     = (area_ratio * 1.2) + (bottom_pos * 0.8)
+
+                    if depth_zone == "NEAR":
+                        score = 1.0
+                    elif depth_zone == "MID":
+                        score = 0.5
+                    elif depth_zone == "FAR":
+                        score = h_score * 0.5  
+                    else:
+                        score = h_score         
+
+                    if score > best_score:
+                        best_score = score
+                        best_class = class_name
+                        best_depth = depth_zone
+
+            # --- ANNOTATE AND STORE DEBUG FRAME ---
+            annotated = frame.copy()
+            annotated = self._box_annotator.annotate(scene=annotated, detections=tracked)
+            annotated = self._label_annotator.annotate(scene=annotated, detections=tracked, labels=labels)
+            
+            with getattr(self, '_annotated_lock', threading.Lock()):
+                self._annotated_frame = annotated
 
             best_score = min(best_score, 1.0)
             self._update_debouncer(best_score, best_class, best_depth)
@@ -253,13 +303,17 @@ class SafetyPipeline:
         except Exception as e:
             logger.error(f"SafetyPipeline YOLO run failed: {e}", exc_info=True)
 
+
     def _on_depth_result(self, tracker_id: int, depth_zone: Optional[str]):
         """Callback from DepthEstimator when MiDaS finishes."""
+        import time
         with self._depths_lock:
-            self._object_depths[tracker_id] = depth_zone
+            if tracker_id in self._object_depths:
+                # Unpack the existing tuple. We want to keep the area, but update zone and time.
+                _, _, last_area = self._object_depths[tracker_id]
+                self._object_depths[tracker_id] = (depth_zone, time.time(), last_area)
+                
         logger.debug(f"Depth result: tracker={tracker_id} zone={depth_zone}")
-
-    
     
     
 
@@ -360,6 +414,12 @@ class SafetyPipeline:
 
             self._object_model = YOLO(VisionConfig.OBJECT_MODEL_PATH)
             self._tracker      = sv.ByteTrack()
+
+            # --- NEW ANNOTATORS ---
+            self._box_annotator = sv.BoxAnnotator()
+            self._label_annotator = sv.LabelAnnotator()
+            self._annotated_frame = None
+            self._annotated_lock = threading.Lock()
 
             logger.info("SafetyPipeline models loaded (YOLO + ByteTrack)")
             return True

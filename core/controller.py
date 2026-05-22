@@ -103,7 +103,7 @@ class CentralController:
                 self._event_bus.process_events(max_events=10)
                 if tick_count % 100 == 0:
                     self._health_check()
-                if SystemConfig.DEBUG_DISPLAY and tick_count % 10 == 0:
+                if SystemConfig.DEBUG_DISPLAY:
                     self._update_debug_display(frame)
             except Exception as e:
                 logger.error(f'Main loop error (tick {tick_count}): {e}', exc_info=True)
@@ -384,10 +384,18 @@ class CentralController:
         try:
             import cv2
             import numpy as np
-            if frame is None:
-                display = np.zeros((CameraConfig.FRAME_HEIGHT, CameraConfig.FRAME_WIDTH, 3), dtype='uint8')
-            else:
+            display_frame = None
+            if self._vision_module and hasattr(self._vision_module, 'get_debug_frame'):
+                display_frame = self._vision_module.get_debug_frame()
+
+            if display_frame is not None:
+                # Vision module uses RGB, OpenCV uses BGR
+                display = cv2.cvtColor(display_frame, cv2.COLOR_RGB2BGR)
+            elif frame is not None:
                 display = cv2.cvtColor(frame.frame, cv2.COLOR_RGB2BGR)
+            else:
+                display = np.zeros((CameraConfig.FRAME_HEIGHT, CameraConfig.FRAME_WIDTH, 3), dtype='uint8')
+
             state = self._state_machine.state.name
             vision = self._state_machine.vision_level
             age_ms = frame.age_ms if frame else 0
@@ -396,6 +404,7 @@ class CentralController:
             cv2.putText(display, f'STATE: {state}', (10, 22), cv2.FONT_HERSHEY_SIMPLEX, 0.65, (0, 255, 255), 2)
             cv2.putText(display, f'VISION: {vision}', (10, 45), cv2.FONT_HERSHEY_SIMPLEX, 0.5, (200, 200, 200), 1)
             cv2.putText(display, f'FRAME AGE: {age_ms:.0f}ms | AUDIO LOCKED: {locked}', (10, 65), cv2.FONT_HERSHEY_SIMPLEX, 0.45, (150, 150, 150), 1)
+            
             cv2.imshow(SystemConfig.DEBUG_WINDOW_NAME, display)
             if cv2.waitKey(1) & 255 == ord('q'):
                 logger.info('Quit key pressed — stopping controller')
