@@ -9,13 +9,23 @@ from mediapipe.tasks.python import vision
 # -----------------------------
 # CONFIG
 # -----------------------------
-ALPHABET = "G"          # CHANGE THIS (A, B, C, ...)
-SAMPLES = 10            # samples per alphabet
+ALPHABET = "Z"          # CHANGE THIS (A, B, C, ...)
+SAMPLES = 10            # samples to collect this run
 FRAMES_PER_SAMPLE = 30  # frames per sample
 SAVE_DIR = f"dataset/{ALPHABET}"
 MODEL_PATH = "hand_landmarker.task"
 
 os.makedirs(SAVE_DIR, exist_ok=True)
+
+# Find existing samples
+existing = [
+    int(f.split("_")[1].split(".")[0])
+    for f in os.listdir(SAVE_DIR)
+    if f.startswith("sample_") and f.endswith(".npy")
+]
+
+sample_count = max(existing) + 1 if existing else 0
+starting_count = sample_count
 
 # -----------------------------
 # MEDIAPIPE HAND LANDMARKER
@@ -33,7 +43,7 @@ options = vision.HandLandmarkerOptions(
 landmarker = vision.HandLandmarker.create_from_options(options)
 
 # -----------------------------
-# DRAWING CONNECTIONS (manual)
+# DRAWING CONNECTIONS
 # -----------------------------
 HAND_CONNECTIONS = [
     (0,1),(1,2),(2,3),(3,4),
@@ -54,6 +64,7 @@ def draw_landmarks(image, landmarks):
     for s, e in HAND_CONNECTIONS:
         x1, y1 = landmarks[s][:2]
         x2, y2 = landmarks[e][:2]
+
         cv2.line(
             image,
             (int(x1 * w), int(y1 * h)),
@@ -67,7 +78,10 @@ def draw_landmarks(image, landmarks):
 # -----------------------------
 cap = cv2.VideoCapture(0)
 
-sample_count = 0
+# Bigger window
+cv2.namedWindow("Alphabet Data Collection", cv2.WINDOW_NORMAL)
+cv2.resizeWindow("Alphabet Data Collection", 1280, 720)
+
 recording = False
 frames_collected = []
 
@@ -76,10 +90,12 @@ print("Press 's' to start recording | 'q' to quit")
 
 while cap.isOpened():
     ret, frame = cap.read()
+
     if not ret:
         break
 
     frame = cv2.flip(frame, 1)
+
     rgb = cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)
 
     mp_image = mp.Image(
@@ -91,22 +107,26 @@ while cap.isOpened():
 
     if result.hand_landmarks:
         hand = result.hand_landmarks[0]
+
         landmarks = [(lm.x, lm.y, lm.z) for lm in hand]
+
         draw_landmarks(frame, landmarks)
 
         if recording:
             flat = []
+
             for lm in landmarks:
                 flat.extend(lm)
+
             frames_collected.append(flat)
 
     cv2.putText(
         frame,
-        f"Alphabet: {ALPHABET} | Samples: {sample_count}/{SAMPLES}",
+        f"Alphabet: {ALPHABET} | New: {sample_count - starting_count}/{SAMPLES} | Total: {sample_count}",
         (10, 30),
         cv2.FONT_HERSHEY_SIMPLEX,
-        0.8,
-        (0, 255, 0),
+        0.6,
+        (0, 0, 255),
         2
     )
 
@@ -114,9 +134,9 @@ while cap.isOpened():
         cv2.putText(
             frame,
             "RECORDING...",
-            (10, 70),
+            (10, 65),
             cv2.FONT_HERSHEY_SIMPLEX,
-            0.8,
+            0.7,
             (0, 0, 255),
             2
         )
@@ -128,12 +148,18 @@ while cap.isOpened():
     if key == ord("s") and not recording:
         recording = True
         frames_collected = []
+
         print("Recording started...")
         time.sleep(0.5)
 
     if recording and len(frames_collected) == FRAMES_PER_SAMPLE:
-        data = np.array(frames_collected)  # (T, 63)
-        path = os.path.join(SAVE_DIR, f"sample_{sample_count:03d}.npy")
+        data = np.array(frames_collected)  # (30, 63)
+
+        path = os.path.join(
+            SAVE_DIR,
+            f"sample_{sample_count:03d}.npy"
+        )
+
         np.save(path, data)
 
         print(f"Saved {path} | shape {data.shape}")
@@ -141,9 +167,11 @@ while cap.isOpened():
         sample_count += 1
         recording = False
         frames_collected = []
+
         time.sleep(0.5)
 
-        if sample_count >= SAMPLES:
+        # Collect SAMPLES new recordings per run
+        if sample_count - starting_count >= SAMPLES:
             break
 
     if key == ord("q"):

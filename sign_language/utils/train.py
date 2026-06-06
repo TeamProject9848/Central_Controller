@@ -7,7 +7,7 @@ from dataset import AlphabetDataset
 # -----------------------------
 # CONFIG
 # -----------------------------
-DATASET_DIR = "dataset"
+DATASET_DIR = "dataset_augmented"
 MODEL_DIR = "models"
 BATCH_SIZE = 16
 EPOCHS = 100
