@@ -74,3 +74,15 @@ cover/
 
 # Project specific
 central_controller_plan.html
+
+
+//Models
+
+sign_language/models/
+*.onnx
+*.bin
+*.safetensors
+*.h5
+*.msgpack
+*.ot
+*.pt
