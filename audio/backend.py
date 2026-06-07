@@ -46,28 +46,42 @@ class Pyttsx3Backend(SpeechBackend):
     """pyttsx3-based backend kept as the current active engine."""
 
     def __init__(self, rate: int):
-        import pyttsx3  # Delayed import to keep dependency optional
-
-        self._engine = pyttsx3.init()
+        # Delay importing/initializing the engine until first use to avoid
+        # audio-driver initialization issues in the creating thread.
+        self._engine = None
         self._rate = rate
-        self._engine.setProperty('rate', rate)
+        self._init_lock = threading.Lock()
+
+    def _ensure_engine(self):
+        if self._engine is not None:
+            return
+        with self._init_lock:
+            if self._engine is not None:
+                return
+            try:
+                import pyttsx3
+                self._engine = pyttsx3.init()
+                self._engine.setProperty('rate', self._rate)
+                logger.info('pyttsx3 engine initialized')
+            except Exception as exc:
+                logger.error(f'Failed to initialize pyttsx3 engine: {exc}', exc_info=True)
+                raise
 
     def speak(self, text: str, interrupt_event: threading.Event, rate: int) -> None:
         if interrupt_event.is_set():
             return
         try:
+            self._ensure_engine()
             if rate != self._rate:
-                self._engine.setProperty('rate', rate)
-                self._rate = rate
+                try:
+                    self._engine.setProperty('rate', rate)
+                    self._rate = rate
+                except Exception:
+                    logger.debug('Unable to set pyttsx3 rate — continuing with current rate')
+
             self._engine.say(text)
-            self._engine.startLoop(False)
-            while self._engine.isBusy():
-                if interrupt_event.is_set():
-                    self._engine.stop()
-                    logger.debug('pyttsx3 backend interrupted mid-speech')
-                    break
-                time.sleep(0.05)
-            self._engine.endLoop()
+            self._engine.runAndWait()
+
         except Exception as exc:
             logger.error(f'pyttsx3 playback error: {exc}', exc_info=True)
 
@@ -89,9 +103,15 @@ def create_backend(rate: int, prefer_pyttsx3: bool = True) -> SpeechBackend:
     """
     if prefer_pyttsx3:
         try:
-            return Pyttsx3Backend(rate=rate)
-        except ImportError:
-            logger.warning('pyttsx3 not installed - falling back to console backend.')
+            # Check import availability without importing at module level
+            import importlib.util
+            spec = importlib.util.find_spec('pyttsx3')
+            if spec is not None:
+                logger.info('Selecting pyttsx3 backend')
+                return Pyttsx3Backend(rate=rate)
+            else:
+                logger.warning('pyttsx3 not found - falling back to console backend.')
         except Exception as exc:
-            logger.warning(f'pyttsx3 backend init failed ({exc}) - falling back to console backend.')
+            logger.warning(f'Error checking pyttsx3 availability ({exc}) - falling back to console backend.')
+    logger.info('Selecting console audio backend')
     return ConsoleBackend()

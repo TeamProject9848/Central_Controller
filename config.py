@@ -1,5 +1,5 @@
 class CameraConfig:
-    PHONE_IP = '192.168.1.39'
+    PHONE_IP = '192.168.1.5'
     PHONE_PORT = 8080
     STREAM_URL = f'http://{PHONE_IP}:{PHONE_PORT}/video'
     SNAPSHOT_URL = f'http://{PHONE_IP}:{PHONE_PORT}/shot.jpg'
