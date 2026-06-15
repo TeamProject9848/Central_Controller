@@ -1,7 +1,7 @@
 import logging
 import signal
 import sys
-from config import SystemConfig
+from config import SystemConfig, FaceConfig
 from core.controller import CentralController
 from vision_module.vision_manager import VisionManager  # import stays at top
 
@@ -71,6 +71,23 @@ def print_startup_banner(logger):
     logger.info("  [CONTINUOUS] : YOLO runs continuously to track active hazards.")
     logger.info("============================================================")
 
+
+def register_face_module_if_enabled(controller, logger):
+    if not FaceConfig.ENABLE_FACE_MODULE:
+        logger.info('Face module disabled by config')
+        return
+    try:
+        from face.backend.real import RealFaceBackend
+        from face.gallery_repo import PickleFaceGallery
+        from face.module import FaceModule
+
+        backend = RealFaceBackend(device=FaceConfig.FACE_BACKEND_DEVICE)
+        gallery = PickleFaceGallery(FaceConfig.GALLERY_PATH)
+        controller.register_face_module(FaceModule(backend=backend, gallery_repo=gallery))
+        logger.info('Face module registered with real backend')
+    except Exception as exc:
+        logger.warning(f'Face module not registered: {exc}', exc_info=True)
+
 def main():
     setup_logging()
     logger = logging.getLogger('main')
@@ -83,6 +100,7 @@ def main():
 
     controller = CentralController()
     controller.register_vision_module(VisionManager())  # ← moved here, after controller exists
+    register_face_module_if_enabled(controller, logger)
 
     def handle_shutdown(sig, frame):
         logger.info('Shutdown signal received')
