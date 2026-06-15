@@ -182,6 +182,11 @@ class CentralController:
     def _on_vision_event(self, event: VisionEvent):
         if event.event_type == VisionEventType.MOTION:
             logger.debug(f'MOTION detected | confidence={event.confidence:.2f}')
+            # If in ALERT state, motion means hazard is still present — reset clear counter
+            if self._state_machine.state == SystemState.ALERT:
+                if self._clear_frame_count > 0:
+                    logger.debug(f'Motion detected during ALERT — resetting clear frame counter from {self._clear_frame_count}')
+                self._clear_frame_count = 0
         elif event.event_type == VisionEventType.NONE:
             if self._state_machine.state == SystemState.ALERT:
                 self._clear_frame_count += 1

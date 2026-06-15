@@ -287,14 +287,70 @@ class SafetyPipeline:
                     bottom_pos  = y2 / h
                     h_score     = (area_ratio * 1.2) + (bottom_pos * 0.8)
 
-                    if depth_zone == "NEAR":
-                        score = 1.0
-                    elif depth_zone == "MID":
-                        score = 0.5
-                    elif depth_zone == "FAR":
-                        score = h_score * 0.5  
+                    # --- DEPTH-BASED SCORING BY OBJECT TYPE ---
+                    # Person: Alert only when NEAR (far is safe)
+                    # Moving objects (car, motorcycle, bus, truck): Alert at MID too
+                    # Moving animals (dog): Alert at MID/FAR with reduced scores
+                    # Bicycle (static): Alert only when NEAR
+
+                    moving_vehicles = {'car', 'motorcycle', 'bus', 'truck'}
+                    moving_animals = {'dog'}
+                    static_objects = {'bicycle'}
+
+                    if class_name == 'person':
+                        # Person: strict distance-based alert
+                        if depth_zone == "NEAR":
+                            score = 1.0
+                        elif depth_zone == "MID":
+                            score = 0.0  # FAR person is safe
+                        elif depth_zone == "FAR":
+                            score = 0.0  # Far person is safe
+                        else:
+                            score = h_score * 0.3  # Unconfirmed depth: low priority
+
+                    elif class_name in moving_vehicles:
+                        # Moving vehicles: alert at NEAR+MID, caution at FAR
+                        if depth_zone == "NEAR":
+                            score = 1.0
+                        elif depth_zone == "MID":
+                            score = 0.8  # Moving vehicles at MID are dangerous
+                        elif depth_zone == "FAR":
+                            score = 0.6  # Even FAR vehicles warrant caution
+                        else:
+                            score = h_score * 0.4
+
+                    elif class_name in moving_animals:
+                        # Moving animals (dog): alert at NEAR, caution at MID+FAR
+                        if depth_zone == "NEAR":
+                            score = 1.0
+                        elif depth_zone == "MID":
+                            score = 0.7  # Dog at MID is concerning
+                        elif depth_zone == "FAR":
+                            score = 0.5  # Far dog is less urgent
+                        else:
+                            score = h_score * 0.35
+
+                    elif class_name in static_objects:
+                        # Static objects (bicycle): alert only at NEAR
+                        if depth_zone == "NEAR":
+                            score = 1.0
+                        elif depth_zone == "MID":
+                            score = 0.2  # Static at MID is minor
+                        elif depth_zone == "FAR":
+                            score = 0.0  # Static at FAR is safe
+                        else:
+                            score = h_score * 0.15
+
                     else:
-                        score = h_score         
+                        # Fallback for any other hazard classes
+                        if depth_zone == "NEAR":
+                            score = 1.0
+                        elif depth_zone == "MID":
+                            score = 0.5
+                        elif depth_zone == "FAR":
+                            score = 0.3
+                        else:
+                            score = h_score * 0.3
 
                     if score > best_score:
                         best_score = score
@@ -336,10 +392,13 @@ class SafetyPipeline:
         """
         Debounce the per-frame hazard score before emitting events.
 
-        Requires RISK_PERSISTENCE_FRAMES consecutive danger frames before
-        emitting RISK. Requires the same count of safe frames before
-        emitting NONE after an alert. Prevents flicker from single-frame
-        detections or brief occlusions.
+        In CONTINUOUS mode:
+            Requires RISK_PERSISTENCE_FRAMES consecutive danger frames before
+            emitting RISK to prevent flicker from brief detections.
+
+        In REACTIVE mode:
+            Emits RISK immediately on detection (single frame from motion trigger).
+            Only debounces NONE to prevent flickering back to safe state.
 
         Thresholds (from notebook, kept as-is for now — tune after field test):
             score > 0.60 → DANGER (maps to RISK)
@@ -348,23 +407,41 @@ class SafetyPipeline:
         with self._debouncer_lock:
             is_danger = score > VisionConfig.YOLO_CONFIDENCE
 
-            # Shift buffer
-            self._state_buffer.pop(0)
-            self._state_buffer.append(is_danger)
+            if self._mode == MODE_REACTIVE:
+                # In REACTIVE mode: emit RISK immediately, debounce NONE only
+                if is_danger and self._last_emit_state != "DANGER":
+                    self._last_emit_state = "DANGER"
+                    self._last_risk_class = hazard_class
+                    self._last_risk_depth = depth_zone
+                    logger.info(f"REACTIVE: Hazard detected immediately — {hazard_class} @ {score:.2f}")
+                    self._emit_risk(hazard_class, score, depth_zone)
+                elif not is_danger:
+                    # Even in REACTIVE, require some stability before clearing
+                    self._state_buffer.pop(0)
+                    self._state_buffer.append(is_danger)
+                    all_safe = not any(self._state_buffer)
+                    if all_safe and self._last_emit_state != "SAFE":
+                        self._last_emit_state = "SAFE"
+                        self._emit_none()
+            else:
+                # CONTINUOUS mode: full debouncing for both RISK and NONE
+                # Shift buffer
+                self._state_buffer.pop(0)
+                self._state_buffer.append(is_danger)
 
-            # Only act when all frames agree
-            all_danger = all(self._state_buffer)
-            all_safe   = not any(self._state_buffer)
+                # Only act when all frames agree
+                all_danger = all(self._state_buffer)
+                all_safe   = not any(self._state_buffer)
 
-            if all_danger and self._last_emit_state != "DANGER":
-                self._last_emit_state = "DANGER"
-                self._last_risk_class = hazard_class
-                self._last_risk_depth = depth_zone
-                self._emit_risk(hazard_class, score, depth_zone)
+                if all_danger and self._last_emit_state != "DANGER":
+                    self._last_emit_state = "DANGER"
+                    self._last_risk_class = hazard_class
+                    self._last_risk_depth = depth_zone
+                    self._emit_risk(hazard_class, score, depth_zone)
 
-            elif all_safe and self._last_emit_state != "SAFE":
-                self._last_emit_state = "SAFE"
-                self._emit_none()
+                elif all_safe and self._last_emit_state != "SAFE":
+                    self._last_emit_state = "SAFE"
+                    self._emit_none()
 
     def _reset_debouncer(self):
         """Clear debouncer state — called on resume to avoid stale data."""
