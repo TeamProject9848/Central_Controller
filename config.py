@@ -48,13 +48,20 @@ class SystemConfig:
 
 
 class FaceConfig:
+    ENABLE_FACE_MODULE = False
+    FACE_BACKEND_DEVICE = 'cpu'
+    FACE_CROP_SIZE = (160, 160)
+    GALLERY_PATH = 'data/face_gallery.pkl'
+
     # Prompt priorities (relative to AudioConfig)
     PRIORITY_GUIDANCE = AudioConfig.PRIORITY_DESCRIPTION
     PRIORITY_RESULT = AudioConfig.PRIORITY_RESPONSE
     PRIORITY_CRITICAL = AudioConfig.PRIORITY_NAVIGATION_STATUS
     REQUIRED_POSES = ['front', 'left', 'right']
     MATCH_THRESHOLD = 0.6
-    LIVENESS_REQUIRED = True
+    MATCH_THRESHOLD_STRONG = 0.6
+    MATCH_THRESHOLD_WEAK = 0.8
+    LIVENESS_REQUIRED = False
 
     # Default prompts keyed by message_key to keep controller mapping simple.
     PROMPTS = {
