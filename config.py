@@ -19,7 +19,7 @@ class VisionConfig:
     YOLO_CONFIDENCE = 0.5
     RISK_PERSISTENCE_FRAMES = 3
     RISK_COOLDOWN_SEC = 3.0
-    HAZARD_CLASSES = ['person', 'bicycle', 'car', 'motorcycle', 'bus', 'truck', 'dog']
+    HAZARD_CLASSES = ['person', 'vehicle', 'dog']
     DEPTH_FPS_MAX = 2
     DEPTH_REUSE_MS = 500
     DEPTH_NEAR_THRESHOLD = 0.3

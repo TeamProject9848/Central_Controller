@@ -17,17 +17,26 @@ from core.event_bus import (
     FaceEvent,
     FaceEventType,
 )
+import asyncio
 from core.state_machine import StateMachine, SystemState
 from camera.source import CameraSource
 from camera.buffer import FrameBuffer, TimestampedFrame
 from audio.queue import AudioQueue
 from interfaces.base import BaseModule
 from interfaces.face_interface import FaceInterface
+from enum import Enum
+
+class AppMode(Enum):
+    DANGER = "danger"
+    FACE = "face"
+    SIGN = "sign"
 logger = logging.getLogger(__name__)
 
 class CentralController:
 
     def __init__(self):
+        self.current_mode = AppMode.DANGER
+        self._flutter_server = None
         self._event_bus = EventBus()
         self._state_machine = StateMachine(initial_state=SystemState.IDLE)
         self._frame_buffer = FrameBuffer()
@@ -48,6 +57,7 @@ class CentralController:
         self._register_event_handlers()
         self._register_state_hooks()
         logger.info('CentralController initialized')
+
 
     def register_vision_module(self, module):
         self._vision_module = module
@@ -88,10 +98,10 @@ class CentralController:
         self._running = True
         self._audio_queue.start()
         self._start_guest_modules()
-        connected = self._camera_source.start()
-        if not connected:
-            logger.warning('Camera stream not available at startup — will retry automatically')
-            self._speak_alert('STREAM_LOST')
+        logger.info(
+            "Waiting for Flutter WebRTC camera stream..."
+        )
+        connected = True
         self._apply_vision_level()
         self._post_audio(AudioCommandType.SPEAK, text='System ready.', priority=AudioConfig.PRIORITY_NAVIGATION_STATUS)
         logger.info('Controller startup complete — entering main loop')
@@ -177,7 +187,12 @@ class CentralController:
         if self._state_machine.can_transition_to(SystemState.ALERT):
             self._state_machine.transition(SystemState.ALERT, reason=f'RISK: {event.hazard_class} @ {event.confidence:.2f}')
         alert_key = self._select_alert_key(event)
-        self._speak_alert(alert_key)
+
+        if self.current_mode == AppMode.DANGER:
+            if self._flutter_server:
+                self._flutter_server.send_alert(alert_key)
+        else:
+            self._speak_alert(alert_key)
 
     def _on_vision_event(self, event: VisionEvent):
         if event.event_type == VisionEventType.MOTION:
@@ -450,7 +465,8 @@ class CentralController:
         return [self._vision_module, self._audio_module, self._input_module, self._face_module]
 
     def _health_check(self):
-        age = self._camera_source.last_frame_age_ms
+        frame = self._frame_buffer.peek()
+        age = frame.age_ms if frame else 999999
         if age > CameraConfig.STREAM_TIMEOUT_SEC * 1000:
             logger.warning(f'No frame received for {age:.0f}ms — stream may be lost')
         for module in self._guest_modules():
@@ -500,3 +516,24 @@ class CentralController:
     @property
     def is_running(self) -> bool:
         return self._running
+    
+    def send_flutter_alert(self, key: str):
+        if self._flutter_server:
+            self._flutter_server.send_alert(key)
+
+    def set_flutter_server(self, flutter_server):
+        self._flutter_server = flutter_server
+
+    def set_app_mode(self, mode: str):
+        mode = mode.lower()
+
+        if mode == "danger":
+            self.current_mode = AppMode.DANGER
+
+        elif mode == "face":
+            self.current_mode = AppMode.FACE
+
+        elif mode == "sign":
+            self.current_mode = AppMode.SIGN
+
+        logger.info(f"App mode changed to {self.current_mode.value}")
