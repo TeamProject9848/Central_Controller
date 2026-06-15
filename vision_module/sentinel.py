@@ -79,11 +79,17 @@ class Sentinel:
         gray = cv2.cvtColor(frame, cv2.COLOR_BGR2GRAY)
         gray = cv2.GaussianBlur(gray, (21, 21), 0)
 
-        if self._prev_gray is None:
+        if (
+            self._prev_gray is None
+            or self._prev_gray.shape != gray.shape
+        ):
             self._prev_gray = gray
             return
 
-        delta = cv2.absdiff(self._prev_gray, gray)
+        delta = cv2.absdiff(
+            self._prev_gray,
+            gray
+        )
 
         _, thresh = cv2.threshold(
             delta,

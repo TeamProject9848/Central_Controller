@@ -4,6 +4,9 @@ import sys
 from config import SystemConfig
 from core.controller import CentralController
 from vision_module.vision_manager import VisionManager  # import stays at top
+from network.websocket_server import CompanionWebSocketServer
+import asyncio
+from network.network_runner import start_network
 
 class ColorFormatter(logging.Formatter):
     """Custom formatter adding colors to terminal logs based on level."""
@@ -82,7 +85,15 @@ def main():
     # ... rest of main() remains exactly the same
 
     controller = CentralController()
+    start_network(controller)
     controller.register_vision_module(VisionManager())  # ← moved here, after controller exists
+
+    ws_server = CompanionWebSocketServer(controller)
+
+
+    controller.set_flutter_server(
+        ws_server.bridge
+    )
 
     def handle_shutdown(sig, frame):
         logger.info('Shutdown signal received')
