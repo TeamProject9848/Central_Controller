@@ -1,5 +1,5 @@
 class CameraConfig:
-    PHONE_IP = '192.168.1.39'
+    PHONE_IP = '192.168.1.8'
     PHONE_PORT = 8080
     STREAM_URL = f'http://{PHONE_IP}:{PHONE_PORT}/video'
     SNAPSHOT_URL = f'http://{PHONE_IP}:{PHONE_PORT}/shot.jpg'
@@ -19,7 +19,7 @@ class VisionConfig:
     YOLO_CONFIDENCE = 0.5
     RISK_PERSISTENCE_FRAMES = 3
     RISK_COOLDOWN_SEC = 3.0
-    HAZARD_CLASSES = ['person', 'vehicle', 'dog']
+    HAZARD_CLASSES = ['person', 'vehicle', 'dog', 'car', 'truck', 'bus', 'motorcycle']
     DEPTH_FPS_MAX = 2
     DEPTH_REUSE_MS = 500
     DEPTH_NEAR_THRESHOLD = 0.3

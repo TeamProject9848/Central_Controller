@@ -188,11 +188,10 @@ class CentralController:
             self._state_machine.transition(SystemState.ALERT, reason=f'RISK: {event.hazard_class} @ {event.confidence:.2f}')
         alert_key = self._select_alert_key(event)
 
-        if self.current_mode == AppMode.DANGER:
-            if self._flutter_server:
-                self._flutter_server.send_alert(alert_key)
-        else:
-            self._speak_alert(alert_key)
+        if self._flutter_server:
+            self._flutter_server.send_alert(alert_key)
+    
+        self._speak_alert(alert_key)
 
     def _on_vision_event(self, event: VisionEvent):
         if event.event_type == VisionEventType.MOTION:
@@ -470,7 +469,7 @@ class CentralController:
         return [self._vision_module, self._audio_module, self._input_module, self._face_module]
 
     def _health_check(self):
-        frame = self._frame_buffer.peek()
+        frame = self._frame_buffer.latest()
         age = frame.age_ms if frame else 999999
         if age > CameraConfig.STREAM_TIMEOUT_SEC * 1000:
             logger.warning(f'No frame received for {age:.0f}ms — stream may be lost')
@@ -531,6 +530,9 @@ class CentralController:
 
     def set_app_mode(self, mode: str):
         mode = mode.lower()
+        logger.info(
+            f"Feature request received: {mode}"
+        )
 
         if mode == "danger":
             self.current_mode = AppMode.DANGER
@@ -542,3 +544,4 @@ class CentralController:
             self.current_mode = AppMode.SIGN
 
         logger.info(f"App mode changed to {self.current_mode.value}")
+    

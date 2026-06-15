@@ -23,6 +23,9 @@ class TimestampedFrame:
         return self.age_ms > SystemConfig.MAX_FRAME_AGE_MS
 
 class FrameBuffer:
+    def latest(self) -> Optional[TimestampedFrame]:
+        with self._lock:
+            return self._last_frame
 
     def __init__(self, maxsize: int=CameraConfig.FRAME_BUFFER_SIZE):
         self._maxsize = maxsize
@@ -33,6 +36,7 @@ class FrameBuffer:
         self._drop_count = 0
         self._pull_count = 0
         self._pull_miss = 0
+        self._last_frame = None
         logger.debug(f'FrameBuffer initialized | maxsize={maxsize}')
 
     def push(self, frame: np.ndarray):
@@ -41,6 +45,7 @@ class FrameBuffer:
             current_id = self._frame_id_counter
             was_full = len(self._buffer) >= self._maxsize
             wrapped = TimestampedFrame(frame=frame, frame_id=current_id)
+            self._last_frame = wrapped
             self._buffer.append(wrapped)
             self._push_count += 1
             if was_full:
