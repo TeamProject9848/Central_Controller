@@ -80,9 +80,7 @@ class FaceModule(FaceInterface):
         self._registration = None
 
     def request_identification(self, metadata: Optional[Dict[str, Any]] = None) -> None:
-        # For now, just emit a placeholder prompt; real match logic will come with backend wiring.
         self._mode = FaceMode.IDENTIFY
-        self._emit_prompt('identify_unknown', None, FaceConfig.PRIORITY_RESULT)
 
     def set_mode(self, mode: str) -> None:
         try:
@@ -101,9 +99,7 @@ class FaceModule(FaceInterface):
         from core.event_bus import FaceEventType  # local import to avoid circular dep
         self._registration.current_index += 1
         if self._registration.current_index >= len(self._registration.required_poses):
-            self._registration.state = RegistrationState.COMPLETE
-            self._emit_event(FaceEventType.REGISTRATION_COMPLETE, message_key='registration_complete', priority=FaceConfig.PRIORITY_RESULT)
-            self._mode = FaceMode.IDLE
+            self._complete_registration()
             return
         self._registration.last_prompt_key = None
         self._emit_current_pose_prompt()
@@ -120,14 +116,19 @@ class FaceModule(FaceInterface):
     def _emit_prompt(self, message_key: str, session_id: Optional[str], priority: int) -> None:
         self._emit_event(FaceEventType.PROMPT, message_key=message_key, session_id=session_id, priority=priority)
 
-    def _emit_event(self, event_type, message_key: Optional[str], session_id: Optional[str], priority: int) -> None:
+    def _emit_event(self, event_type, message_key: Optional[str], session_id: Optional[str] = None, priority: int = FaceConfig.PRIORITY_RESULT, metadata: Optional[Dict[str, Any]] = None) -> None:
         from core.event_bus import FaceEvent, FaceEventType  # local import to avoid circular dep
 
+        event_metadata = {
+            'registration_state': self._registration.state.name if self._registration else None,
+        }
+        if metadata:
+            event_metadata.update(metadata)
         event = FaceEvent(
             event_type=event_type,
             message_key=message_key,
             session_id=session_id,
-            metadata={'registration_state': self._registration.state.name if self._registration else None},
+            metadata=event_metadata,
             priority=priority,
         )
         self._emit(event)
@@ -146,9 +147,6 @@ class FaceModule(FaceInterface):
             return
         self._registration.embeddings.append(embedding)
         self.advance_registration_step(success=True)
-        if self._registration and self._registration.state == RegistrationState.COMPLETE and self._gallery_repo:
-            person_id = self._registration.metadata.get('person_id') if self._registration.metadata else 'default'
-            self._gallery_repo.add_or_update(person_id, self._registration.embeddings, metadata=self._registration.metadata)
 
     def _process_identify_frame(self, frame) -> None:
         aligned = self._backend.detect_and_align(getattr(frame, 'frame', frame))
@@ -164,8 +162,41 @@ class FaceModule(FaceInterface):
             if results:
                 person_id, distance = results[0]
                 metadata = {'person_id': person_id, 'distance': distance}
-                if distance <= FaceConfig.MATCH_THRESHOLD:
+                if distance <= FaceConfig.MATCH_THRESHOLD_STRONG:
                     message_key = 'identify_success'
-                self._emit_event(FaceEventType.IDENTIFIED, message_key=message_key, session_id=None, priority=priority)
+                self._emit_event(FaceEventType.IDENTIFIED, message_key=message_key, session_id=None, priority=priority, metadata=metadata)
+                self._mode = FaceMode.IDLE
                 return
         self._emit_event(FaceEventType.IDENTIFIED, message_key=message_key, session_id=None, priority=priority)
+        self._mode = FaceMode.IDLE
+
+    def _complete_registration(self) -> None:
+        from core.event_bus import FaceEventType  # local import to avoid circular dep
+
+        if not self._registration:
+            return
+        session = self._registration
+        person_id = session.metadata.get('person_id') if session.metadata else None
+        person_id = person_id or session.session_id
+        if self._gallery_repo:
+            wrote = self._gallery_repo.add_or_update(person_id, session.embeddings, metadata=session.metadata)
+            if not wrote:
+                session.state = RegistrationState.FAILED
+                self._emit_event(
+                    FaceEventType.REGISTRATION_FAILED,
+                    message_key='registration_failed',
+                    session_id=session.session_id,
+                    priority=FaceConfig.PRIORITY_CRITICAL,
+                    metadata={'person_id': person_id},
+                )
+                self._mode = FaceMode.IDLE
+                return
+        session.state = RegistrationState.COMPLETE
+        self._emit_event(
+            FaceEventType.REGISTRATION_COMPLETE,
+            message_key='registration_complete',
+            session_id=session.session_id,
+            priority=FaceConfig.PRIORITY_RESULT,
+            metadata={'person_id': person_id},
+        )
+        self._mode = FaceMode.IDLE
