@@ -46,17 +46,17 @@ class SemanticTasks:
         """
         Load BLIP and EasyOCR models.
         Called once during VisionManager._on_start().
-        Returns True if loaded, False if unavailable.
+        Returns True if at least BLIP or EasyOCR loaded successfully.
         """
         with self._load_lock:
             if self._models_loaded:
-                return self._blip_model is not None
+                return self._blip_model is not None or self._ocr_reader is not None
 
+            # 1. Load BLIP
             try:
                 import torch
                 from transformers import BlipProcessor, BlipForConditionalGeneration
-                import easyocr
-
+                
                 self._device = "cuda" if torch.cuda.is_available() else "cpu"
                 logger.info(f"Loading BLIP on {self._device}...")
 
@@ -66,24 +66,31 @@ class SemanticTasks:
                 self._blip_model = BlipForConditionalGeneration.from_pretrained(
                     "Salesforce/blip-image-captioning-base"
                 ).to(self._device)
+                logger.info("BLIP model loaded successfully")
+            except Exception as e:
+                logger.warning(f"BLIP model load failed: {e}")
 
+            # 2. Load EasyOCR
+            try:
+                import easyocr
                 logger.info("Loading EasyOCR...")
                 import torch as _torch
                 self._ocr_reader = easyocr.Reader(
                     ['en'], gpu=_torch.cuda.is_available()
                 )
-
-                self._models_loaded = True
-                logger.info("SemanticTasks models loaded (BLIP + EasyOCR)")
-                return True
-
+                logger.info("EasyOCR loaded successfully")
             except Exception as e:
-                logger.warning(
-                    f"SemanticTasks model load failed: {e} — "
-                    f"caption/OCR will be unavailable."
+                logger.warning(f"EasyOCR load failed: {e} — OCR will be unavailable.")
+
+            self._models_loaded = True
+            success = self._blip_model is not None or self._ocr_reader is not None
+            if success:
+                logger.info(
+                    f"SemanticTasks models loaded. "
+                    f"BLIP={self._blip_model is not None}, "
+                    f"EasyOCR={self._ocr_reader is not None}"
                 )
-                self._models_loaded = True  
-                return False
+            return success
 
     def request_caption(self,
                         frame: np.ndarray,
@@ -146,8 +153,8 @@ class SemanticTasks:
         return True
 
     def is_available(self) -> bool:
-        """True if models loaded and ready."""
-        return self._blip_model is not None and self._ocr_reader is not None
+        """True if at least one model is loaded and ready."""
+        return self._blip_model is not None or self._ocr_reader is not None
 
     def get_stats(self) -> dict:
         return {
@@ -322,7 +329,7 @@ if __name__ == "__main__":
     time.sleep(0.2)   # Let thread finish
     assert len(results) == 1
     assert "unavailable" in results[0].lower()
-    print(f"PASS  Test 3: No model → callback with error: '{results[0]}'")
+    print(f"PASS  Test 3: No model -> callback with error: '{results[0]}'")
 
     
     results.clear()
@@ -331,7 +338,7 @@ if __name__ == "__main__":
     time.sleep(0.2)
     assert len(results) == 1
     assert "unavailable" in results[0].lower()
-    print(f"PASS  Test 4: No model → OCR callback with error: '{results[0]}'")
+    print(f"PASS  Test 4: No model -> OCR callback with error: '{results[0]}'")
 
   
     import threading as _threading
@@ -348,7 +355,7 @@ if __name__ == "__main__":
     rejected = st.request_caption(frame, cb)
     assert not rejected
     st._busy_lock.release()
-    print("PASS  Test 5: Second request while busy → rejected (False)")
+    print("PASS  Test 5: Second request while busy -> rejected (False)")
 
     st._cancelled.clear()
     assert not st._cancelled.is_set()
