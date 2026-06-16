@@ -27,7 +27,7 @@ def send_caption_tts(controller, text: str):
             "state": state.name,
         }
         logger.info(f"Sending caption result to Flutter TTS: '{text}'")
-        controller._flutter_server.bridge._schedule_broadcast(payload)
+        controller._flutter_server._schedule_broadcast(payload)
     else:
         logger.warning(
             "Flutter server not registered — cannot send caption to Flutter TTS."
