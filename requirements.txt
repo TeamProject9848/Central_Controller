@@ -1,92 +1,59 @@
-aioice==0.10.2
-aiortc==1.14.0
-annotated-doc==0.0.4
-annotated-types==0.7.0
-anyio==4.13.0
-av==16.1.0
-certifi==2026.2.25
-cffi==2.0.0
-charset-normalizer==3.4.7
-click==8.3.2
-colorama==0.4.6
-comtypes==1.4.16
-contourpy==1.3.3
-cryptography==49.0.0
-cycler==0.12.1
-defusedxml==0.7.1
-dnspython==2.8.0
-face-alignment==1.4.1
-facenet-pytorch==2.6.0
-filelock==3.29.0
-fonttools==4.62.1
-fsspec==2026.3.0
-google-crc32c==1.8.0
-h11==0.16.0
-hf-xet==1.4.3
-httpcore==1.0.9
-httpx==0.28.1
-huggingface_hub==1.11.0
-idna==3.12
-ifaddr==0.2.0
-ImageIO==2.37.3
-iniconfig==2.3.0
-Jinja2==3.1.6
-kiwisolver==1.5.0
-lazy-loader==0.5
-llvmlite==0.47.0
-markdown-it-py==4.0.0
-MarkupSafe==3.0.3
-matplotlib==3.8.4
-mdurl==0.1.2
-mpmath==1.3.0
-networkx==3.6.1
-numba==0.65.1
-numpy==1.26.4
-nvidia-ml-py==13.610.43
-opencv-python==4.11.0.86
-packaging==26.1
-pillow==10.2.0
-pluggy==1.6.0
-polars==1.40.0
-polars-runtime-32==1.40.0
-psutil==7.2.2
-pycparser==3.0
-pydantic==2.12.5
-pydantic-settings==2.13.1
-pydantic_core==2.41.5
-pyDeprecate==0.5.0
-pyee==13.0.1
-Pygments==2.20.0
-pylibsrtp==1.0.0
-pyOpenSSL==26.3.0
-pyparsing==3.3.2
-pypiwin32==223
-pytest==9.0.2
-python-dateutil==2.9.0.post0
-python-dotenv==1.2.2
-pyttsx3==2.99
-pywin32==311
-PyYAML==6.0.3
-regex==2026.4.4
-requests==2.33.1
-rich==15.0.0
-safetensors==0.7.0
-scikit-image==0.26.0
-scipy==1.17.1
-shellingham==1.5.4
-six==1.17.0
-supervision==0.27.0.post2
-sympy==1.14.0
-tifffile==2026.3.3
-timm==1.0.26
-tokenizers==0.22.2
-torch==2.2.2
-torchvision==0.17.2
-tqdm==4.68.2
-transformers==5.5.4
-typer==0.24.1
-typing-inspection==0.4.2
-typing_extensions==4.15.0
-ultralytics==8.4.68
-ultralytics-thop==2.0.20
-urllib3==2.6.3
+# Python
+# Recommended: Python >=3.11,<3.12
+
+# Face recognition
+face-alignment>=1.4.1,<2.0
+facenet-pytorch>=2.6.0,<2.7
+
+# PyTorch ecosystem (required by facenet-pytorch)
+torch>=2.2,<2.3
+torchvision>=0.17,<0.18
+
+# Computer vision
+opencv-python>=4.11,<4.12
+matplotlib>=3.8,<3.9
+numpy>=1.26,<2.0
+pillow>=10.2,<10.3
+scipy>=1.17,<1.18
+scikit-image>=0.26,<0.27
+
+# Object detection
+ultralytics>=8.4.68,<8.5
+ultralytics-thop>=2.0.20,<2.1
+supervision>=0.27,<0.28
+
+# Transformers
+transformers>=5.5,<5.6
+tokenizers>=0.22,<0.23
+timm>=1.0,<1.1
+huggingface_hub>=1.11,<1.12
+safetensors>=0.7,<0.8
+
+# RTC
+aiortc>=1.14,<2.0
+
+# Configuration
+pydantic>=2.12,<3
+pydantic-settings>=2.13,<3
+python-dotenv>=1.2,<2
+
+# Data
+polars>=1.40,<2
+
+# Networking
+requests>=2.33,<3
+httpx>=0.28,<0.29
+websockets>=16.0
+
+# Utilities
+rich>=15,<16
+typer>=0.24,<0.25
+pyttsx3>=2.99,<3
+psutil>=7,<8
+
+# Windows only
+pywin32>=311
+pypiwin32>=223
+
+# Development
+pytest>=9,<10
