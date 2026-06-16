@@ -1,6 +1,7 @@
 import logging
 
 from aiortc import RTCPeerConnection, RTCSessionDescription
+from aiortc.mediastreams import MediaStreamError
 
 logger = logging.getLogger(__name__)
 
@@ -24,6 +25,10 @@ class WebRTCSignaling:
                 f"Received track: {track.kind}"
             )
 
+            @track.on("ended")
+            def _on_ended():
+                logger.warning("Remote track ended")
+
             if track.kind != "video":
                 logger.info(
                     f"Ignoring non-video track: {track.kind}"
@@ -39,7 +44,6 @@ class WebRTCSignaling:
             while True:
 
                 try:
-
                     frame = await track.recv()
 
                     frame_count += 1
@@ -62,13 +66,15 @@ class WebRTCSignaling:
                             f"Pushed frame {image.shape}"
                         )
 
-                except Exception as e:
+                except MediaStreamError:
+                    logger.warning("WebRTC video receiver: remote stream ended or unavailable")
+                    break
 
+                except Exception as e:
                     logger.error(
                         f"WebRTC video receiver stopped: {e}",
                         exc_info=True
                     )
-
                     break
 
         logger.info(
