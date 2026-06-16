@@ -35,3 +35,53 @@ def test_face_prompt_replayed_after_alert_exit():
     controller._on_exit_alert()
 
     assert recorded[0][0] == FaceConfig.PROMPTS['registration_start']
+
+
+def test_person_near_alert_sends_tracker_id():
+    from core.event_bus import VisionEvent, VisionEventType
+
+    controller = CentralController()
+    alerts_sent = []
+
+    class MockFlutterServer:
+        def send_alert(self, key, person_id=None):
+            alerts_sent.append((key, person_id))
+
+    controller.set_flutter_server(MockFlutterServer())
+
+    event = VisionEvent(
+        event_type=VisionEventType.RISK,
+        confidence=0.8,
+        hazard_class='person',
+        depth_zone='NEAR',
+        tracker_id=42
+    )
+
+    controller._on_risk_event(event)
+
+    assert len(alerts_sent) == 1
+    assert alerts_sent[0][0] == 'PERSON_NEAR'
+    assert alerts_sent[0][1] == '42'
+
+
+def test_person_left_event_sends_person_left_to_flutter():
+    from core.event_bus import VisionEvent, VisionEventType
+
+    controller = CentralController()
+    left_events_sent = []
+
+    class MockFlutterServer:
+        def send_person_left(self, person_id):
+            left_events_sent.append(person_id)
+
+    controller.set_flutter_server(MockFlutterServer())
+
+    event = VisionEvent(
+        event_type=VisionEventType.PERSON_LEFT,
+        tracker_id=42
+    )
+
+    controller._on_vision_event(event)
+
+    assert len(left_events_sent) == 1
+    assert left_events_sent[0] == '42'

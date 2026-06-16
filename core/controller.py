@@ -189,7 +189,8 @@ class CentralController:
         alert_key = self._select_alert_key(event)
 
         if self._flutter_server:
-            self._flutter_server.send_alert(alert_key)
+            person_id = str(event.tracker_id) if (event.hazard_class == 'person' and event.tracker_id is not None) else None
+            self._flutter_server.send_alert(alert_key, person_id=person_id)
     
         self._speak_alert(alert_key)
 
@@ -207,6 +208,10 @@ class CentralController:
                 logger.debug(f'Clear frame {self._clear_frame_count}/{self._required_clear_frames}')
                 if self._clear_frame_count >= self._required_clear_frames:
                     self._resolve_alert()
+        elif event.event_type == VisionEventType.PERSON_LEFT:
+            logger.info(f"PERSON LEFT event received for tracker_id={event.tracker_id}")
+            if self._flutter_server:
+                self._flutter_server.send_person_left(str(event.tracker_id))
 
     def _on_stream_event(self, event: StreamEvent):
         if event.event_type == StreamEventType.LOST:

@@ -96,15 +96,34 @@ class FlutterBridge:
     def send_alert(
         self,
         key: str,
+        person_id: Optional[str] = None,
     ):
 
         payload = {
             "type": "alert",
             "key": key,
         }
+        if person_id is not None:
+            payload["person_id"] = person_id
 
         logger.info(
             f"Sending Flutter alert: {payload}"
+        )
+
+        self._schedule_broadcast(payload)
+
+    def send_person_left(
+        self,
+        person_id: str,
+    ):
+
+        payload = {
+            "type": "person_left",
+            "person_id": person_id,
+        }
+
+        logger.info(
+            f"Sending person left event: {payload}"
         )
 
         self._schedule_broadcast(payload)

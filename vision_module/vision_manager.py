@@ -369,7 +369,7 @@ if __name__ == "__main__":
     from time import time as _time
 
     class VisionEventType(Enum):
-        NONE = auto(); MOTION = auto(); RISK = auto()
+        NONE = auto(); MOTION = auto(); RISK = auto(); PERSON_LEFT = auto()
 
     @dataclass
     class VisionEvent:
@@ -377,6 +377,7 @@ if __name__ == "__main__":
         confidence: float = 0.0
         hazard_class: str = None
         depth_zone: str = None
+        tracker_id: int = None
         timestamp: float = field(default_factory=_time)
 
     event_bus_mod.VisionEvent    = VisionEvent
@@ -466,14 +467,16 @@ if __name__ == "__main__":
 
     class MockSafetyPipeline:
         def __init__(self, emit_callback):
-            self.mode = MODE_REACTIVE; self.started = False
+            self._mode = MODE_REACTIVE; self.started = False
         def start(self): self.started = True; return True
         def stop(self): pass
         def suspend(self): pass
         def resume(self): pass
         def push_frame(self, f): pass
-        def set_mode(self, mode, fps_override=False): self.mode = mode
-        def get_stats(self): return {"mode": self.mode}
+        def set_mode(self, mode, fps_override=False, context=""): self._mode = mode
+        def get_stats(self): return {"mode": self._mode}
+        @property
+        def mode(self): return self._mode
 
     class MockSemanticTasks:
         def load_models(self): return False
@@ -499,6 +502,12 @@ if __name__ == "__main__":
     sys.modules['vision_module.sentinel']         = sentinel_mod
     sys.modules['vision_module.safety_pipeline']  = safety_mod
     sys.modules['vision_module.semantic_tasks']   = semantic_mod
+
+    # Overwrite module-level imports with mocks for the test run
+    global Sentinel, SafetyPipeline, SemanticTasks
+    Sentinel = MockSentinel
+    SafetyPipeline = MockSafetyPipeline
+    SemanticTasks = MockSemanticTasks
 
     print("Running VisionManager tests...\n")
 
@@ -527,30 +536,30 @@ if __name__ == "__main__":
     vm._apply_vision_level(LEVEL_SENTINEL_SAFETY)
     assert vm._sentinel._on_motion_frame is None   
     assert vm._safety.mode == MODE_CONTINUOUS
-    print("PASS  Test 3: sentinel_and_safety → continuous, no motion callback")
+    print("PASS  Test 3: sentinel_and_safety -> continuous, no motion callback")
 
     vm._apply_vision_level(LEVEL_SENTINEL_ONLY)
     assert vm._sentinel._on_motion_frame is not None  
     assert vm._safety.mode == MODE_REACTIVE
-    print("PASS  Test 4: sentinel_only → reactive, motion callback set")
+    print("PASS  Test 4: sentinel_only -> reactive, motion callback set")
 
     vm._apply_vision_level(LEVEL_SENTINEL_SEMANTIC)
     assert vm._sentinel._on_motion_frame is not None  
     assert vm._safety.mode == MODE_REACTIVE
-    print("PASS  Test 5: sentinel_and_semantic → reactive guard active")
+    print("PASS  Test 5: sentinel_and_semantic -> reactive guard active")
 
     vm.set_semantic_result_callback(mock_sem_cb)
     vm.request_caption()
     time.sleep(0.2)
     assert len(semantic_out) == 1
     assert "I see:" in semantic_out[0]
-    print(f"PASS  Test 6: request_caption() → callback: '{semantic_out[0]}'")
+    print(f"PASS  Test 6: request_caption() -> callback: '{semantic_out[0]}'")
 
     vm.request_ocr()
     time.sleep(0.2)
     assert len(semantic_out) == 2
     assert "Text:" in semantic_out[1]
-    print(f"PASS  Test 7: request_ocr() → callback: '{semantic_out[1]}'")
+    print(f"PASS  Test 7: request_ocr() -> callback: '{semantic_out[1]}'")
 
     vm.cancel_semantic_task()
     print("PASS  Test 8: cancel_semantic_task() runs without error")

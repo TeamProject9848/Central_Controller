@@ -55,6 +55,7 @@ class SafetyPipeline:
 
         self._object_depths: dict = {}   # {tracker_id: "NEAR"/"MID"/"FAR"/None}
         self._depths_lock   = threading.Lock()
+        self._active_person_ids = set()
 
         self._state_buffer      = [False] * VisionConfig.RISK_PERSISTENCE_FRAMES
         self._last_risk_class   = None
@@ -95,12 +96,14 @@ class SafetyPipeline:
         self._suspend_event.set()   # Unblock any waiting suspend
         if self._loop_thread and self._loop_thread.is_alive():
             self._loop_thread.join(timeout=3.0)
+        self._active_person_ids.clear()
         logger.info("SafetyPipeline stopped")
 
     def suspend(self):
         """Pause processing. Loop thread stays alive but skips inference."""
         self._suspended = True
         self._suspend_event.set()
+        self._active_person_ids.clear()
         logger.debug("SafetyPipeline suspended")
 
     def resume(self):
@@ -208,8 +211,22 @@ class SafetyPipeline:
             best_score  = 0.0
             best_class  = None
             best_depth  = None
+            best_tracker_id = None
             
             labels = [] # For supervision annotation
+
+            # --- DETECT PERSON EXIT ---
+            current_person_ids = set()
+            for class_id, tracker_id in zip(tracked.class_id, tracked.tracker_id):
+                class_name = self._object_model.model.names[class_id]
+                if class_name == 'person':
+                    current_person_ids.add(tracker_id)
+            
+            left_person_ids = self._active_person_ids - current_person_ids
+            for left_id in left_person_ids:
+                logger.info(f"Person tracker_id={left_id} left frame")
+                self._emit_person_left(left_id)
+            self._active_person_ids = current_person_ids
 
             # --- CLEANUP: Remove stale tracker IDs to prevent memory leaks ---
             active_trackers = set(tracked.tracker_id)
@@ -356,6 +373,7 @@ class SafetyPipeline:
                         best_score = score
                         best_class = class_name
                         best_depth = depth_zone
+                        best_tracker_id = tracker_id
 
             # --- ANNOTATE AND STORE DEBUG FRAME ---
             annotated = frame.copy()
@@ -366,7 +384,7 @@ class SafetyPipeline:
                 self._annotated_frame = annotated
 
             best_score = min(best_score, 1.0)
-            self._update_debouncer(best_score, best_class, best_depth)
+            self._update_debouncer(best_score, best_class, best_depth, best_tracker_id)
 
         except Exception as e:
             logger.error(f"SafetyPipeline YOLO run failed: {e}", exc_info=True)
@@ -388,7 +406,8 @@ class SafetyPipeline:
     def _update_debouncer(self,
                           score: float,
                           hazard_class: Optional[str],
-                          depth_zone: Optional[str]):
+                          depth_zone: Optional[str],
+                          tracker_id: Optional[int] = None):
         """
         Debounce the per-frame hazard score before emitting events.
 
@@ -414,7 +433,7 @@ class SafetyPipeline:
                     self._last_risk_class = hazard_class
                     self._last_risk_depth = depth_zone
                     logger.info(f"REACTIVE: Hazard detected immediately — {hazard_class} @ {score:.2f}")
-                    self._emit_risk(hazard_class, score, depth_zone)
+                    self._emit_risk(hazard_class, score, depth_zone, tracker_id)
                 elif not is_danger:
                     # Even in REACTIVE, require some stability before clearing
                     self._state_buffer.pop(0)
@@ -437,7 +456,7 @@ class SafetyPipeline:
                     self._last_emit_state = "DANGER"
                     self._last_risk_class = hazard_class
                     self._last_risk_depth = depth_zone
-                    self._emit_risk(hazard_class, score, depth_zone)
+                    self._emit_risk(hazard_class, score, depth_zone, tracker_id)
 
                 elif all_safe and self._last_emit_state != "SAFE":
                     self._last_emit_state = "SAFE"
@@ -448,6 +467,7 @@ class SafetyPipeline:
         with self._debouncer_lock:
             self._state_buffer    = [False] * VisionConfig.RISK_PERSISTENCE_FRAMES
             self._last_emit_state = "SAFE"
+        self._active_person_ids.clear()
         logger.debug("Debouncer reset")
 
     
@@ -457,7 +477,8 @@ class SafetyPipeline:
     def _emit_risk(self,
                    hazard_class: Optional[str],
                    confidence: float,
-                   depth_zone: Optional[str]):
+                   depth_zone: Optional[str],
+                   tracker_id: Optional[int] = None):
         """
         Emit RISK event upward.
         This is what replaces speak_threaded() + play_alert_tone() from
@@ -476,6 +497,7 @@ class SafetyPipeline:
                 confidence=round(min(confidence, 1.0), 4),
                 hazard_class=hazard_class,
                 depth_zone=depth_zone,
+                tracker_id=tracker_id,
             ))
         except Exception as e:
             logger.error(f"Failed to emit RISK: {e}", exc_info=True)
@@ -492,6 +514,16 @@ class SafetyPipeline:
             ))
         except Exception as e:
             logger.error(f"Failed to emit NONE: {e}", exc_info=True)
+
+    def _emit_person_left(self, tracker_id: int):
+        from core.event_bus import VisionEvent, VisionEventType
+        try:
+            self._emit(VisionEvent(
+                event_type=VisionEventType.PERSON_LEFT,
+                tracker_id=tracker_id,
+            ))
+        except Exception as e:
+            logger.error(f"Failed to emit PERSON_LEFT: {e}", exc_info=True)
 
     
 
@@ -558,7 +590,7 @@ if __name__ == "__main__":
     from time import time as _time
 
     class VisionEventType(Enum):
-        NONE = auto(); MOTION = auto(); RISK = auto()
+        NONE = auto(); MOTION = auto(); RISK = auto(); PERSON_LEFT = auto()
 
     @dataclass
     class VisionEvent:
@@ -566,6 +598,7 @@ if __name__ == "__main__":
         confidence: float = 0.0
         hazard_class: str = None
         depth_zone: str = None
+        tracker_id: int = None
         timestamp: float = field(default_factory=_time)
 
     event_bus_mod.VisionEvent = VisionEvent
@@ -612,6 +645,8 @@ if __name__ == "__main__":
     assert sp._mode == MODE_REACTIVE
     print("PASS  Test 4: set_mode(REACTIVE) works")
 
+    # Set to continuous mode so Test 5-7 debouncer assertions work
+    sp.set_mode(MODE_CONTINUOUS)
     
     sp._update_debouncer(0.9, "person", "NEAR")  
     assert len(events) == 0                      

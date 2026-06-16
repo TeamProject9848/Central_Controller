@@ -12,6 +12,7 @@ class VisionEventType(Enum):
     NONE = auto()
     MOTION = auto()
     RISK = auto()
+    PERSON_LEFT = auto()
 
 class StreamEventType(Enum):
     CONNECTED = auto()
@@ -49,6 +50,7 @@ class VisionEvent:
     confidence: float = 0.0
     hazard_class: Optional[str] = None
     depth_zone: Optional[str] = None
+    tracker_id: Optional[int] = None
     timestamp: float = field(default_factory=time)
 
     def is_stale(self, max_age_ms: float) -> bool:
@@ -91,6 +93,7 @@ EVENT_PRIORITY = {
     VisionEventType.RISK: 0,
     StreamEventType.LOST: 1,
     VisionEventType.MOTION: 2,
+    VisionEventType.PERSON_LEFT: 2,
     IntentEventType.TOGGLE_OVERRIDE: 3,
     IntentEventType.START_NAVIGATION: 4,
     IntentEventType.STOP_NAVIGATION: 4,
