@@ -46,6 +46,7 @@ class CentralController:
         self._audio_module = None
         self._input_module = None
         self._face_module: Optional[FaceInterface] = None
+        self._sign_module = None
         self._last_face_prompt: Optional[tuple[str, Optional[str]]] = None  # (session_id, message_key)
         self._pending_face_prompt: Optional[tuple[str, int, Optional[str]]] = None  # (message_key, priority, session_id)
         self._running = False
@@ -86,6 +87,12 @@ class CentralController:
         self._face_module = module
         module.set_event_callback(self._event_bus.post)
         logger.info(f'Face module registered: {module.module_name}')
+
+    def register_sign_module(self, module):
+        self._sign_module = module
+        module.on_sentence_callback = self.send_sign_translation
+        module.is_active_callback = lambda: self.current_mode == AppMode.SIGN
+        logger.info("Sign module registered")
 
     def start(self, blocking: bool=True):
         if self._running:
@@ -158,6 +165,11 @@ class CentralController:
                 self._vision_module.on_frame(frame)
             except Exception as e:
                 logger.error(f'Vision module on_frame raised: {e}', exc_info=True)
+        if self._sign_module:
+            try:
+                self._sign_module.on_frame(frame)
+            except Exception as e:
+                logger.error(f'Sign module on_frame raised: {e}', exc_info=True)
         if self._face_module and self._face_module.is_running:
             try:
                 self._face_module.on_frame(frame)
@@ -482,11 +494,15 @@ class CentralController:
                 success = module.start()
                 if not success:
                     logger.error(f'Failed to start module: {module.module_name}')
+        if self._sign_module is not None:
+            self._sign_module.start()
 
     def _stop_guest_modules(self):
         for module in self._guest_modules():
             if module is not None:
                 module.stop()
+        if self._sign_module is not None:
+            self._sign_module.stop()
 
     def _guest_modules(self):
         return [self._vision_module, self._audio_module, self._input_module, self._face_module]
@@ -547,6 +563,11 @@ class CentralController:
     def send_flutter_alert(self, key: str):
         if self._flutter_server:
             self._flutter_server.send_alert(key)
+
+    def send_sign_translation(self, sentence: str):
+        logger.info(f"Broadcasting sign translation: '{sentence}'")
+        if self._flutter_server:
+            self._flutter_server.send_sign_translation(sentence)
 
     def set_flutter_server(self, flutter_server):
         self._flutter_server = flutter_server

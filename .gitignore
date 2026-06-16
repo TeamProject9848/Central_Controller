@@ -74,3 +74,37 @@ cover/
 
 # Project specific
 central_controller_plan.html
+
+
+# Runtime generated files
+runtime_audio/
+outputs/
+results/
+tmp/
+temp/
+
+# Sign language models
+sign_language/models/context_fixer/
+sign_language/models/grammar_corrector/
+sign_language/models/t5-small/
+
+# Training checkpoints
+sign_language/models/*.pth
+sign_language/utils/models/*.pth
+
+# Torch / HuggingFace caches
+.huggingface/
+huggingface/
+torch_cache/
+
+# Runtime files
+*.wav
+*.mp3
+
+#Datasets
+sign_language/utils/dataset/
+sign_language/utils/dataset_augmented/
+*.npy
+
+# Optional large MediaPipe model (ignore if you don't want it in git)
+# sign_language/hand_landmarker.task

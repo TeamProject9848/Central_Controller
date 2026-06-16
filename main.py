@@ -91,6 +91,14 @@ def register_face_module_if_enabled(controller, logger):
     except Exception as exc:
         logger.warning(f'Face module not registered: {exc}', exc_info=True)
 
+def register_sign_module_if_enabled(controller, logger):
+    try:
+        from sign_language.backend import SignDetectionBackend
+        controller.register_sign_module(SignDetectionBackend())
+        logger.info('Sign language module registered successfully')
+    except Exception as exc:
+        logger.warning(f'Sign language module not registered: {exc}', exc_info=True)
+
 def main():
     setup_logging()
     logger = logging.getLogger('main')
@@ -105,13 +113,7 @@ def main():
     start_network(controller)
     controller.register_vision_module(VisionManager())  # ← moved here, after controller exists
     register_face_module_if_enabled(controller, logger)
-
-    ws_server = CompanionWebSocketServer(controller)
-
-
-    controller.set_flutter_server(
-        ws_server.bridge
-    )
+    register_sign_module_if_enabled(controller, logger)
 
     def handle_shutdown(sig, frame):
         logger.info('Shutdown signal received')

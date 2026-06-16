@@ -49,7 +49,7 @@ class WebRTCSignaling:
                     frame_count += 1
 
                     if frame_count % 30 == 0:
-                        logger.info(
+                        logger.debug(
                             f"Received {frame_count} video frames"
                         )
 
@@ -62,7 +62,7 @@ class WebRTCSignaling:
                     )
 
                     if frame_count % 30 == 0:
-                        logger.info(
+                        logger.debug(
                             f"Pushed frame {image.shape}"
                         )
 
