@@ -33,6 +33,7 @@ class AudioConfig:
     PRIORITY_RESPONSE = 2
     PRIORITY_DESCRIPTION = 3
     ALERT_COOLDOWN_SEC = 2.0
+    ALERT_RESOLVE_SEC = 1.5   # Seconds of confirmed safety before ALERT → IDLE
     TTS_SPEECH_RATE = 175
     TTS_MAX_CHARS = 200
     INTERRUPT_ON_HIGHER_PRIORITY = True

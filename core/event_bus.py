@@ -51,6 +51,7 @@ class VisionEvent:
     hazard_class: Optional[str] = None
     depth_zone: Optional[str] = None
     tracker_id: Optional[int] = None
+    source: Optional[str] = None        # "sentinel" or "safety" — for controller to distinguish
     timestamp: float = field(default_factory=time)
 
     def is_stale(self, max_age_ms: float) -> bool:

@@ -63,6 +63,9 @@ class SafetyPipeline:
         self._last_emit_state   = "SAFE"   # last confirmed emitted state
         self._debouncer_lock    = threading.Lock()
 
+        self._alerted_trackers: dict[int, float] = {}   # {tracker_id: alert_time}
+        self._alerted_lock      = threading.Lock()
+
         self._yolo_runs     = 0
         self._risk_events   = 0
         self._none_events   = 0
@@ -234,6 +237,10 @@ class SafetyPipeline:
                 stale_keys = [k for k in self._object_depths.keys() if k not in active_trackers]
                 for k in stale_keys:
                     del self._object_depths[k]
+            with self._alerted_lock:
+                stale_alert_keys = [k for k in self._alerted_trackers if k not in active_trackers]
+                for k in stale_alert_keys:
+                    del self._alerted_trackers[k]
 
             for xyxy, class_id, tracker_id in zip(
                 tracked.xyxy,
@@ -314,25 +321,34 @@ class SafetyPipeline:
                     moving_animals = {'dog'}
                     static_objects = {'bicycle'}
 
+                    # Check if this tracker was already alerted (for non-NEAR zones)
+                    with self._alerted_lock:
+                        already_alerted = tracker_id in self._alerted_trackers
+
                     if class_name == 'person':
-                        # Person: strict distance-based alert
-                        if depth_zone == "NEAR":
+                        # Person: alert once at NEAR, then suppress for same tracker
+                        if already_alerted:
+                            score = 0.0
+                        elif depth_zone == "NEAR":
                             score = 1.0
                         elif depth_zone == "MID":
-                            score = 0.0  # FAR person is safe
+                            score = 0.0  # MID person is safe
                         elif depth_zone == "FAR":
-                            score = 0.0  # Far person is safe
+                            score = 0.0  # FAR person is safe
                         else:
                             score = h_score * 0.3  # Unconfirmed depth: low priority
 
                     elif class_name in moving_vehicles:
-                        # Moving vehicles: alert at NEAR+MID, caution at FAR
+                        # Vehicles: NEAR always alerts, MID alerts once then suppresses
                         if depth_zone == "NEAR":
-                            score = 1.0
+                            score = 1.0  # NEAR always dangerous regardless of history
                         elif depth_zone == "MID":
-                            score = 0.8  # Moving vehicles at MID are dangerous
+                            if already_alerted:
+                                score = 0.0  # Stationary at MID — already alerted, resolve to idle
+                            else:
+                                score = 0.8  # First detection at MID — alert
                         elif depth_zone == "FAR":
-                            score = 0.6  # Even FAR vehicles warrant caution
+                            score = 0.0  # FAR vehicles are safe — no alert
                         else:
                             score = h_score * 0.4
 
@@ -384,6 +400,19 @@ class SafetyPipeline:
                 self._annotated_frame = annotated
 
             best_score = min(best_score, 1.0)
+            # Record the tracker that caused the alert for per-tracker memory
+            if best_score > VisionConfig.YOLO_CONFIDENCE and best_class is not None:
+                # Find the tracker_id that produced the best score — it's the one being alerted
+                for xyxy, class_id, tracker_id in zip(
+                    tracked.xyxy, tracked.class_id, tracked.tracker_id
+                ):
+                    cls = self._object_model.model.names[class_id]
+                    if cls == best_class:
+                        with self._alerted_lock:
+                            if tracker_id not in self._alerted_trackers:
+                                self._alerted_trackers[tracker_id] = time.time()
+                                logger.debug(f"Marked tracker {tracker_id} ({cls}) as alerted")
+                        break
             self._update_debouncer(best_score, best_class, best_depth, best_tracker_id)
 
         except Exception as e:
@@ -498,6 +527,7 @@ class SafetyPipeline:
                 hazard_class=hazard_class,
                 depth_zone=depth_zone,
                 tracker_id=tracker_id,
+                source="safety",
             ))
         except Exception as e:
             logger.error(f"Failed to emit RISK: {e}", exc_info=True)
@@ -511,6 +541,7 @@ class SafetyPipeline:
             self._emit(VisionEvent(
                 event_type=VisionEventType.NONE,
                 confidence=0.0,
+                source="safety",
             ))
         except Exception as e:
             logger.error(f"Failed to emit NONE: {e}", exc_info=True)
@@ -599,6 +630,7 @@ if __name__ == "__main__":
         hazard_class: str = None
         depth_zone: str = None
         tracker_id: int = None
+        source: str = None
         timestamp: float = field(default_factory=_time)
 
     event_bus_mod.VisionEvent = VisionEvent

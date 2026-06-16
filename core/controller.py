@@ -50,8 +50,7 @@ class CentralController:
         self._pending_face_prompt: Optional[tuple[str, int, Optional[str]]] = None  # (message_key, priority, session_id)
         self._running = False
         self._main_thread: Optional[threading.Thread] = None
-        self._clear_frame_count = 0
-        self._required_clear_frames = 5
+        self._alert_safe_since: Optional[float] = None   # When safety pipeline first said NONE during ALERT
         self._last_risk_time: float = 0.0
         self._pre_alert_state: Optional[SystemState] = None
         self._register_event_handlers()
@@ -139,7 +138,13 @@ class CentralController:
             except Exception as e:
                 logger.error(f'Main loop error (tick {tick_count}): {e}', exc_info=True)
             elapsed = time.time() - tick_start
-            sleep_time = SystemConfig.CONTROLLER_TICK_SEC - elapsed
+            # --- CHECK ALERT TIMER ---
+            if self._state_machine.state == SystemState.ALERT and self._alert_safe_since is not None:
+                safe_duration = time.time() - self._alert_safe_since
+                if safe_duration >= AudioConfig.ALERT_RESOLVE_SEC:
+                    logger.info(f'Alert safe for {safe_duration:.1f}s — resolving')
+                    self._resolve_alert()
+            sleep_time = SystemConfig.CONTROLLER_TICK_SEC - (time.time() - tick_start)
             if sleep_time > 0:
                 time.sleep(sleep_time)
             elif elapsed > SystemConfig.CONTROLLER_TICK_SEC * 2:
@@ -179,7 +184,7 @@ class CentralController:
             logger.debug('RISK event within cooldown window — suppressing duplicate')
             return
         self._last_risk_time = now
-        self._clear_frame_count = 0
+        self._alert_safe_since = None   # Reset safety timer — hazard confirmed
         logger.warning(f'RISK INTERRUPT | class={event.hazard_class} | confidence={event.confidence:.2f} | depth={event.depth_zone}')
         current = self._state_machine.state
         if current != SystemState.ALERT:
@@ -197,17 +202,16 @@ class CentralController:
     def _on_vision_event(self, event: VisionEvent):
         if event.event_type == VisionEventType.MOTION:
             logger.debug(f'MOTION detected | confidence={event.confidence:.2f}')
-            # If in ALERT state, motion means hazard is still present — reset clear counter
-            if self._state_machine.state == SystemState.ALERT:
-                if self._clear_frame_count > 0:
-                    logger.debug(f'Motion detected during ALERT — resetting clear frame counter from {self._clear_frame_count}')
-                self._clear_frame_count = 0
+            # NOTE: We do NOT reset _alert_safe_since here.
+            # Sentinel MOTION means "pixels changed" — not "hazard present".
+            # Only actual RISK events (via _on_risk_event) reset the timer.
         elif event.event_type == VisionEventType.NONE:
-            if self._state_machine.state == SystemState.ALERT:
-                self._clear_frame_count += 1
-                logger.debug(f'Clear frame {self._clear_frame_count}/{self._required_clear_frames}')
-                if self._clear_frame_count >= self._required_clear_frames:
-                    self._resolve_alert()
+            if self._state_machine.state == SystemState.ALERT and event.source == "safety":
+                # Safety pipeline confirmed scene is clear — start or continue the timer
+                # Ignore sentinel NONE (just means "no pixel motion", not "no hazard")
+                if self._alert_safe_since is None:
+                    self._alert_safe_since = time.time()
+                    logger.debug(f'Alert safety timer started — will resolve in {AudioConfig.ALERT_RESOLVE_SEC}s')
         elif event.event_type == VisionEventType.PERSON_LEFT:
             logger.info(f"PERSON LEFT event received for tracker_id={event.tracker_id}")
             if self._flutter_server:
@@ -336,11 +340,11 @@ class CentralController:
         logger.debug('Unknown intent detected — ignoring')
 
     def _resolve_alert(self):
-        self._clear_frame_count = 0
+        self._alert_safe_since = None
         target = self._pre_alert_state or SystemState.NAVIGATION
         logger.info(f'Alert resolved — returning to {target.name}')
         if self._state_machine.can_transition_to(target):
-            self._state_machine.transition(target, reason=f'Hazard cleared after {self._required_clear_frames} clear frames')
+            self._state_machine.transition(target, reason=f'Hazard cleared after {AudioConfig.ALERT_RESOLVE_SEC}s of safety')
         elif self._state_machine.can_transition_to(SystemState.IDLE):
             self._state_machine.transition(SystemState.IDLE, reason='Alert resolved — fallback to IDLE')
         self._pre_alert_state = None

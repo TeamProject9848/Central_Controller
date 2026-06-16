@@ -168,6 +168,7 @@ class Sentinel:
             self._emit(VisionEvent(
                 event_type=VisionEventType.MOTION,
                 confidence=round(min(confidence, 1.0), 4),
+                source="sentinel",
             ))
         except Exception as e:
             logger.error(f"Sentinel failed to emit MOTION: {e}", exc_info=True)
@@ -179,6 +180,7 @@ class Sentinel:
             self._emit(VisionEvent(
                 event_type=VisionEventType.NONE,
                 confidence=0.0,
+                source="sentinel",
             ))
         except Exception as e:
             logger.error(f"Sentinel failed to emit NONE: {e}", exc_info=True)
