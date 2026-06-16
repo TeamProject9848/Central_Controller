@@ -51,7 +51,7 @@ class CentralController:
         self._running = False
         self._main_thread: Optional[threading.Thread] = None
         self._clear_frame_count = 0
-        self._required_clear_frames = 10
+        self._required_clear_frames = 5
         self._last_risk_time: float = 0.0
         self._pre_alert_state: Optional[SystemState] = None
         self._register_event_handlers()
@@ -380,6 +380,7 @@ class CentralController:
     def _on_enter_idle(self):
         self._apply_vision_level()
         self._audio_queue.unlock_audio()
+        self._send_flutter_status()
 
     def _on_exit_idle(self):
         pass
@@ -389,6 +390,7 @@ class CentralController:
         self._audio_queue.unlock_audio()
         if self._input_module and self._input_module.is_suspended:
             self._input_module.resume()
+        self._send_flutter_status()
 
     def _on_exit_navigation(self):
         pass
@@ -402,6 +404,7 @@ class CentralController:
             self._vision_module.cancel_semantic_task()
         self._event_bus.clear()
         self._frame_buffer.clear()
+        self._send_flutter_status()
 
     def _on_exit_alert(self):
         self._audio_queue.unlock_audio()
@@ -423,6 +426,7 @@ class CentralController:
         if self._input_module and hasattr(self._input_module, 'clear_buffer'):
             self._input_module.clear_buffer()
         self._event_bus.clear()
+        self._send_flutter_status()
 
     def _on_exit_override(self):
         self._audio_queue.unlock_audio()
@@ -431,6 +435,7 @@ class CentralController:
 
     def _on_enter_semantic(self):
         self._apply_vision_level()
+        self._send_flutter_status()
 
     def _on_exit_semantic(self):
         if self._vision_module and hasattr(self._vision_module, 'cancel_semantic_task'):
@@ -446,6 +451,15 @@ class CentralController:
             self._vision_module.set_vision_level(level, state_name)
         except Exception as e:
             logger.error(f"Failed to set vision level '{level}': {e}", exc_info=True)
+
+    def _send_flutter_status(self):
+        """Push the current system state to all connected Flutter clients."""
+        if not self._flutter_server:
+            return
+        label = self._state_machine.state_label
+        frame = self._frame_buffer.latest()
+        age = frame.age_ms if frame else 0.0
+        self._flutter_server.send_status(label, age)
 
     def _speak_alert(self, alert_key: str):
         self._audio_queue.post(AudioCommand(command_type=AudioCommandType.ALERT, alert_key=alert_key, priority=AudioConfig.PRIORITY_ALERT))

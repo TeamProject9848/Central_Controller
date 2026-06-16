@@ -45,7 +45,7 @@ class FlutterBridge:
         payload: dict,
     ):
 
-        logger.info(
+        logger.debug(
             f"Broadcasting Flutter payload: {payload}"
         )
 
@@ -139,6 +139,21 @@ class FlutterBridge:
         payload = {
             "type": "sign_translation",
             "text": text,
+        }
+
+        self._schedule_broadcast(payload)
+
+    def send_status(
+        self,
+        state: str,
+        frame_age: float = 0.0,
+    ):
+        """Broadcast current system state to Flutter clients."""
+
+        payload = {
+            "type": "status",
+            "state": state,
+            "frame_age": round(frame_age, 1),
         }
 
         self._schedule_broadcast(payload)
