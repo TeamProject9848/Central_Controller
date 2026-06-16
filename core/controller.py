@@ -30,6 +30,7 @@ class AppMode(Enum):
     DANGER = "danger"
     FACE = "face"
     SIGN = "sign"
+    CAPTION = "caption"
 logger = logging.getLogger(__name__)
 
 class CentralController:
@@ -54,6 +55,7 @@ class CentralController:
         self._alert_safe_since: Optional[float] = None   # When safety pipeline first said NONE during ALERT
         self._last_risk_time: float = 0.0
         self._pre_alert_state: Optional[SystemState] = None
+        self._current_semantic_task = None
         self._register_event_handlers()
         self._register_state_hooks()
         logger.info('CentralController initialized')
@@ -63,14 +65,8 @@ class CentralController:
         self._vision_module = module
         module.set_event_callback(self._event_bus.post)
         
-        # Route semantic results (caption/OCR) to AudioQueue as SPEAK commands
-        module.set_semantic_result_callback(
-            lambda text: self._post_audio(
-                AudioCommandType.SPEAK,
-                text=text,
-                priority=AudioConfig.PRIORITY_RESPONSE
-            )
-        )
+        # Route semantic results (caption/OCR) appropriately
+        module.set_semantic_result_callback(self._on_semantic_result)
         
         logger.info(f"Vision module registered: {module.module_name}")
 
@@ -300,6 +296,7 @@ class CentralController:
     def _handle_request_caption(self):
         if self._state_machine.can_transition_to(SystemState.SEMANTIC):
             if self._vision_module:
+                self._current_semantic_task = "caption"
                 self._state_machine.transition(SystemState.SEMANTIC, reason='User requested caption')
                 self._vision_module.request_caption()
             else:
@@ -310,12 +307,32 @@ class CentralController:
     def _handle_request_ocr(self):
         if self._state_machine.can_transition_to(SystemState.SEMANTIC):
             if self._vision_module:
+                self._current_semantic_task = "ocr"
                 self._state_machine.transition(SystemState.SEMANTIC, reason='User requested OCR')
                 self._vision_module.request_ocr()
             else:
                 logger.warning('OCR requested but no vision module registered')
         else:
             logger.debug('OCR request ignored - cannot enter SEMANTIC state now')
+
+    def _on_semantic_result(self, text: str):
+        is_caption = self._current_semantic_task == "caption" or text.startswith("I see: ")
+        
+        if is_caption:
+            from network.flutter_tts import send_caption_tts
+            send_caption_tts(self, text)
+        else:
+            self._post_audio(
+                AudioCommandType.SPEAK,
+                text=text,
+                priority=AudioConfig.PRIORITY_RESPONSE
+            )
+        
+        # Clean up caption state
+        self._current_semantic_task = None
+
+        if self._state_machine.state == SystemState.SEMANTIC:
+            self._state_machine.transition(SystemState.IDLE, reason='Semantic task completed')
 
     def _handle_start_face_registration(self):
         if not self._face_module:
@@ -419,6 +436,7 @@ class CentralController:
     def _on_enter_alert(self):
         self._apply_vision_level()
         self._audio_queue.lock_to_alerts()
+        self._current_semantic_task = None
         if self._input_module and self._input_module.is_running:
             self._input_module.suspend()
         if self._vision_module and hasattr(self._vision_module, 'cancel_semantic_task'):
@@ -459,6 +477,7 @@ class CentralController:
         self._send_flutter_status()
 
     def _on_exit_semantic(self):
+        self._current_semantic_task = None
         if self._vision_module and hasattr(self._vision_module, 'cancel_semantic_task'):
             self._vision_module.cancel_semantic_task()
 
@@ -586,6 +605,13 @@ class CentralController:
 
         elif mode == "sign":
             self.current_mode = AppMode.SIGN
+
+        elif mode == "caption":
+            self.current_mode = AppMode.CAPTION
+            if self._state_machine.state == SystemState.IDLE:
+                self._handle_request_caption()
+            else:
+                logger.info("Caption mode selected but state is not IDLE — ignoring caption request")
 
         logger.info(f"App mode changed to {self.current_mode.value}")
     
