@@ -41,12 +41,16 @@ class RealFaceBackend(FaceBackend):
             img = np.asarray(frame)
             if img.size == 0:
                 return None
-            landmarks_list = self._face_alignment.get_landmarks(img)
+                
+            # Convert BGR (from WebRTC) to RGB for face_alignment
+            img_rgb = cv2.cvtColor(img, cv2.COLOR_BGR2RGB)
+            
+            landmarks_list = self._face_alignment.get_landmarks(img_rgb)
             if landmarks_list is None or len(landmarks_list) == 0:
                 return None
-            return self._align_and_crop_face(img, landmarks_list[0], output_size=FaceConfig.FACE_CROP_SIZE)
+            return self._align_and_crop_face(img_rgb, landmarks_list[0], output_size=FaceConfig.FACE_CROP_SIZE)
         except Exception as exc:
-            logger.debug(f'Face detect/align failed: {exc}', exc_info=True)
+            logger.error(f'Face detect/align failed: {exc}', exc_info=True)
             return None
 
     def extract_embedding(self, aligned_face) -> Optional[Any]:
@@ -64,7 +68,7 @@ class RealFaceBackend(FaceBackend):
                 emb = self._embedding_model(face_tensor).detach().cpu().numpy()[0]
             return emb
         except Exception as exc:
-            logger.debug(f'Face embedding failed: {exc}', exc_info=True)
+            logger.error(f'Face embedding failed: {exc}', exc_info=True)
             return None
 
     def evaluate_liveness(self, frame, metadata: Optional[Dict[str, Any]] = None) -> Tuple[bool, Dict[str, Any]]:
