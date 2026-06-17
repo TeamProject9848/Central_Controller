@@ -6,6 +6,7 @@ import websockets
 
 from network.flutter_bridge import FlutterBridge
 from network.webrtc_signaling import WebRTCSignaling
+from core.event_bus import IntentEvent, IntentEventType
 
 logger = logging.getLogger(__name__)
 
@@ -77,8 +78,6 @@ class CompanionWebSocketServer:
                 elif msg_type == "face_intent":
                     intent = payload.get("intent", "")
                     logger.info(f"Face intent received: {intent}")
-                    
-                    from core.event_bus import IntentEvent, IntentEventType
                     
                     intent_map = {
                         "start_registration": IntentEventType.START_FACE_REGISTRATION,
