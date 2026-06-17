@@ -183,6 +183,10 @@ class FaceModule(FaceInterface):
             return
         session = self._registration
         person_id = session.metadata.get('person_id') if session.metadata else None
+        if isinstance(person_id, str):
+            person_id = person_id.strip().lower()
+            if session.metadata:
+                session.metadata['person_id'] = person_id
         person_id = person_id or session.session_id
         if self._gallery_repo:
             wrote = self._gallery_repo.add_or_update(person_id, session.embeddings, metadata=session.metadata)

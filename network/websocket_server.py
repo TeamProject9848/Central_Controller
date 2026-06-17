@@ -87,8 +87,10 @@ class CompanionWebSocketServer:
                     event_type = intent_map.get(intent, IntentEventType.UNKNOWN)
                     
                     # Extract metadata (person_id, etc.) from payload
-                    metadata = {k: v for k, v in payload.items() 
-                                if k not in ("type", "intent")}
+                    metadata = payload.get("metadata")
+                    if not isinstance(metadata, dict):
+                        metadata = {k: v for k, v in payload.items() 
+                                    if k not in ("type", "intent")}
                     
                     self.controller._event_bus.post(
                         IntentEvent(event_type=event_type, raw_input=intent, metadata=metadata)

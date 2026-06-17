@@ -1,6 +1,14 @@
 import logging
 import signal
 import sys
+
+# Suppress PyTorch dynamo compiler errors and fall back to eager mode
+try:
+    import torch._dynamo
+    torch._dynamo.config.suppress_errors = True
+except ImportError:
+    pass
+
 from config import SystemConfig, FaceConfig
 from core.controller import CentralController
 from vision_module.vision_manager import VisionManager  # import stays at top

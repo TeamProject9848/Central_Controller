@@ -267,9 +267,16 @@ class CentralController:
         if not text:
             logger.debug('FaceEvent ignored - no message_key/prompt text provided')
             return
+
+        # Announce the identified person's name on success
+        if message_key == 'identify_success' and event.metadata:
+            person_id = event.metadata.get('person_id') or event.metadata.get('person_name')
+            if person_id:
+                text = f"{text} {person_id}"
+
         priority = event.priority if event.priority is not None else self._face_priority_for_event(event.event_type)
         if self._state_machine.state == SystemState.ALERT:
-            self._pending_face_prompt = (message_key, priority, event.session_id)
+            self._pending_face_prompt = (message_key, priority, event.session_id, text)
             logger.debug('Face prompt deferred due to ALERT state')
             # Forward face event to Flutter even when deferred
             if self._flutter_server:
@@ -474,8 +481,11 @@ class CentralController:
         if self._input_module and self._input_module.is_suspended:
             self._input_module.resume()
         if self._pending_face_prompt:
-            message_key, priority, session_id = self._pending_face_prompt
-            text = FaceConfig.PROMPTS.get(message_key, message_key)
+            pending = self._pending_face_prompt
+            message_key = pending[0]
+            priority = pending[1]
+            session_id = pending[2]
+            text = pending[3] if len(pending) > 3 else FaceConfig.PROMPTS.get(message_key, message_key)
             if text:
                 self._last_face_prompt = (session_id, message_key)
                 self._post_audio(AudioCommandType.SPEAK, text=text, priority=priority)
