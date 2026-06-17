@@ -49,7 +49,7 @@ class SystemConfig:
 
 
 class FaceConfig:
-    ENABLE_FACE_MODULE = False
+    ENABLE_FACE_MODULE = True
     FACE_BACKEND_DEVICE = 'cpu'
     FACE_CROP_SIZE = (160, 160)
     GALLERY_PATH = 'data/face_gallery.pkl'
