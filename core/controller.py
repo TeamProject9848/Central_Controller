@@ -597,6 +597,13 @@ class CentralController:
             f"Feature request received: {mode}"
         )
 
+        # Reset sign language module state on mode changes to ensure we start fresh
+        if self._sign_module and hasattr(self._sign_module, 'reset'):
+            try:
+                self._sign_module.reset()
+            except Exception as e:
+                logger.error(f"Failed to reset sign language module: {e}", exc_info=True)
+
         if mode == "danger":
             self.current_mode = AppMode.DANGER
 

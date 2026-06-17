@@ -53,10 +53,21 @@ def normalize_landmarks(sequence):
     seq = seq / scale[:, None, :]
     return seq.reshape(sequence.shape[0], -1)
 
+def normalize_single_frame(landmarks_list):
+    landmarks = np.array(landmarks_list).reshape(21, 3)
+    wrist = landmarks[0, :]
+    translated = landmarks - wrist
+    palm = translated[9, :]
+    scale = np.linalg.norm(palm) + 1e-6
+    normalized = translated / scale
+    return normalized.flatten()
+
 def pose_changed(current, previous):
     if previous is None:
         return True
-    diff = np.linalg.norm(np.array(current) - np.array(previous))
+    norm_current = normalize_single_frame(current)
+    norm_previous = normalize_single_frame(previous)
+    diff = np.linalg.norm(norm_current - norm_previous)
     return diff > POSE_CHANGE_THRESHOLD
 
 class SignDetectionBackend:
@@ -73,6 +84,38 @@ class SignDetectionBackend:
         self.model = None
         self.landmarker = None
         self.device = "cuda" if torch.cuda.is_available() else "cpu"
+
+    def reset(self):
+        """Reset the internal state, buffers, and clear frame queue."""
+        logger.info("Resetting SignDetectionBackend state...")
+        
+        # Clear deques
+        if hasattr(self, 'frame_buffer') and self.frame_buffer is not None:
+            self.frame_buffer.clear()
+        if hasattr(self, 'vote_buffer') and self.vote_buffer is not None:
+            self.vote_buffer.clear()
+
+        # Drain frame queue
+        if hasattr(self, '_frame_queue') and self._frame_queue is not None:
+            while not self._frame_queue.empty():
+                try:
+                    self._frame_queue.get_nowait()
+                except Exception:
+                    break
+
+        self.current_word = ""
+        self.raw_sentence = ""
+        self.fixed_sentence = ""
+
+        self.last_letter = ""
+        self.last_committed_letter = ""
+        self.last_committed_landmarks = None
+        self.confirm_count = 0
+        self.next_allowed_time = 0.0
+
+        self.hand_present = False
+        self.last_hand_seen_time = time.time()
+        logger.info("SignDetectionBackend state reset completed")
 
     def start(self) -> bool:
         if self.is_running:
@@ -202,7 +245,7 @@ class SignDetectionBackend:
         logger.info("SignDetectionBackend worker loop exited")
 
     def _process_frame(self, frame):
-        flipped = frame
+        flipped = cv2.flip(frame, 1)
         rgb = cv2.cvtColor(flipped, cv2.COLOR_BGR2RGB)
         mp_image = mp.Image(image_format=mp.ImageFormat.SRGB, data=rgb)
         result = self.landmarker.detect(mp_image)
@@ -249,6 +292,17 @@ class SignDetectionBackend:
                             self.last_committed_letter = prediction
                             self.last_committed_landmarks = landmarks.copy()
                             self.next_allowed_time = current_time + LETTER_DELAY
+                            # Clear buffer so user has time to transition to next letter
+                            self.frame_buffer.clear()
+                            self.vote_buffer.clear()
+
+                            # Immediate broadcast of current letter/word update
+                            if self.on_sentence_callback:
+                                try:
+                                    current_text = (self.raw_sentence + self.current_word).strip()
+                                    self.on_sentence_callback(current_text)
+                                except Exception as cb_err:
+                                    logger.error(f"Error calling on_sentence_callback for intermediate letter: {cb_err}", exc_info=True)
 
                         self.confirm_count = 0
                         self.last_letter = ""
@@ -257,6 +311,14 @@ class SignDetectionBackend:
                 if self.current_word:
                     self.raw_sentence += self.current_word + " "
                     logger.info(f"Sign word completed: {self.current_word}, raw_sentence: {self.raw_sentence}")
+                    
+                    # Immediate broadcast of word completion
+                    if self.on_sentence_callback:
+                        try:
+                            self.on_sentence_callback(self.raw_sentence.strip())
+                        except Exception as cb_err:
+                            logger.error(f"Error calling on_sentence_callback for word completion: {cb_err}", exc_info=True)
+                            
                 self.current_word = ""
 
                 self.last_committed_letter = ""
