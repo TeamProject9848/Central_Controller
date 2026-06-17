@@ -251,11 +251,11 @@ class CentralController:
             if event.event_type not in (IntentEventType.STOP_NAVIGATION,):
                 logger.debug(f'Intent {event.event_type.name} ignored — in OVERRIDE mode')
                 return
-        handlers = {IntentEventType.START_NAVIGATION: self._handle_start_navigation, IntentEventType.STOP_NAVIGATION: self._handle_stop_navigation, IntentEventType.REQUEST_CAPTION: self._handle_request_caption, IntentEventType.REQUEST_OCR: self._handle_request_ocr, IntentEventType.START_FACE_REGISTRATION: self._handle_start_face_registration, IntentEventType.CANCEL_FACE_REGISTRATION: self._handle_cancel_face_registration, IntentEventType.IDENTIFY_FACE: self._handle_identify_face, IntentEventType.UNKNOWN: self._handle_unknown_intent}
+        handlers = {IntentEventType.START_NAVIGATION: lambda e: self._handle_start_navigation(), IntentEventType.STOP_NAVIGATION: lambda e: self._handle_stop_navigation(), IntentEventType.REQUEST_CAPTION: lambda e: self._handle_request_caption(), IntentEventType.REQUEST_OCR: lambda e: self._handle_request_ocr(), IntentEventType.START_FACE_REGISTRATION: self._handle_start_face_registration, IntentEventType.CANCEL_FACE_REGISTRATION: self._handle_cancel_face_registration, IntentEventType.IDENTIFY_FACE: self._handle_identify_face, IntentEventType.UNKNOWN: lambda e: self._handle_unknown_intent()}
         handler = handlers.get(event.event_type)
         if handler:
             try:
-                handler()
+                handler(event)
             except Exception as e:
                 logger.error(f'Intent handler for {event.event_type.name} raised: {e}', exc_info=True)
         else:
@@ -271,6 +271,15 @@ class CentralController:
         if self._state_machine.state == SystemState.ALERT:
             self._pending_face_prompt = (message_key, priority, event.session_id)
             logger.debug('Face prompt deferred due to ALERT state')
+            # Forward face event to Flutter even when deferred
+            if self._flutter_server:
+                self._flutter_server.send_face_event(
+                    event_type=event.event_type.name,
+                    message_key=message_key,
+                    session_id=event.session_id,
+                    metadata=event.metadata,
+                    text=text,
+                )
             return
         last_key = self._last_face_prompt
         if last_key and last_key[0] == event.session_id and last_key[1] == message_key:
@@ -278,6 +287,16 @@ class CentralController:
             return
         self._last_face_prompt = (event.session_id, message_key)
         self._post_audio(AudioCommandType.SPEAK, text=text, priority=priority)
+        
+        # Forward face event to Flutter UI
+        if self._flutter_server:
+            self._flutter_server.send_face_event(
+                event_type=event.event_type.name,
+                message_key=message_key,
+                session_id=event.session_id,
+                metadata=event.metadata,
+                text=text,
+            )
 
     def _handle_start_navigation(self):
         if self._state_machine.can_transition_to(SystemState.NAVIGATION):
@@ -334,23 +353,27 @@ class CentralController:
         if self._state_machine.state == SystemState.SEMANTIC:
             self._state_machine.transition(SystemState.IDLE, reason='Semantic task completed')
 
-    def _handle_start_face_registration(self):
+    def _handle_start_face_registration(self, event: IntentEvent):
         if not self._face_module:
             logger.warning('Face registration requested but no face module registered')
             return
-        self._face_module.start_registration()
+        metadata = event.metadata or {}
+        self._face_module.start_registration(metadata=metadata)
+        logger.info(f'Face registration started with metadata: {metadata}')
 
-    def _handle_cancel_face_registration(self):
+    def _handle_cancel_face_registration(self, event: IntentEvent):
         if not self._face_module:
             logger.warning('Cancel face registration requested but no face module registered')
             return
-        self._face_module.cancel_registration()
+        metadata = event.metadata or {}
+        self._face_module.cancel_registration(metadata=metadata)
 
-    def _handle_identify_face(self):
+    def _handle_identify_face(self, event: IntentEvent):
         if not self._face_module:
             logger.warning('Identify face requested but no face module registered')
             return
-        self._face_module.request_identification()
+        metadata = event.metadata or {}
+        self._face_module.request_identification(metadata=metadata)
 
     def _handle_override_toggle(self):
         current = self._state_machine.state
@@ -447,6 +470,7 @@ class CentralController:
 
     def _on_exit_alert(self):
         self._audio_queue.unlock_audio()
+        self._alert_safe_since = None  # Reset safety timer
         if self._input_module and self._input_module.is_suspended:
             self._input_module.resume()
         if self._pending_face_prompt:
@@ -455,6 +479,13 @@ class CentralController:
             if text:
                 self._last_face_prompt = (session_id, message_key)
                 self._post_audio(AudioCommandType.SPEAK, text=text, priority=priority)
+                if self._flutter_server:
+                    self._flutter_server.send_face_event(
+                        event_type='PROMPT',
+                        message_key=message_key,
+                        session_id=session_id,
+                        text=text,
+                    )
             self._pending_face_prompt = None
 
     def _on_enter_override(self):

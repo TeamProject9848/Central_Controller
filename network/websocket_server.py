@@ -74,6 +74,28 @@ class CompanionWebSocketServer:
                         mode
                     )
 
+                elif msg_type == "face_intent":
+                    intent = payload.get("intent", "")
+                    logger.info(f"Face intent received: {intent}")
+                    
+                    from core.event_bus import IntentEvent, IntentEventType
+                    
+                    intent_map = {
+                        "start_registration": IntentEventType.START_FACE_REGISTRATION,
+                        "cancel_registration": IntentEventType.CANCEL_FACE_REGISTRATION,
+                        "identify": IntentEventType.IDENTIFY_FACE,
+                    }
+                    event_type = intent_map.get(intent, IntentEventType.UNKNOWN)
+                    
+                    # Extract metadata (person_id, etc.) from payload
+                    metadata = {k: v for k, v in payload.items() 
+                                if k not in ("type", "intent")}
+                    
+                    self.controller._event_bus.post(
+                        IntentEvent(event_type=event_type, raw_input=intent, metadata=metadata)
+                    )
+                    logger.debug(f"Posted IntentEvent: {event_type.name} with metadata {metadata}")
+
         except Exception as e:
 
             logger.error(

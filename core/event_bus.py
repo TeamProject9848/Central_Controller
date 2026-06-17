@@ -69,6 +69,7 @@ class IntentEvent:
     event_type: IntentEventType
     raw_input: Optional[str] = None
     confidence: float = 1.0
+    metadata: Optional[Dict[str, Any]] = None
     timestamp: float = field(default_factory=time)
 
 @dataclass

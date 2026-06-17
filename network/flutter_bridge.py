@@ -190,3 +190,24 @@ class FlutterBridge:
         }
 
         self._schedule_broadcast(payload)
+
+
+    def send_face_event(
+        self,
+        event_type: str,
+        message_key: str,
+        session_id: str = None,
+        metadata: dict = None,
+        text: str = None,
+    ):
+        """Broadcast face event (prompt, result, status) to Flutter clients."""
+        payload = {
+            "type": "face_event",
+            "event_type": event_type,
+            "message_key": message_key,
+            "session_id": session_id,
+            "text": text,
+            "metadata": metadata or {},
+        }
+        logger.info(f"Sending Flutter face_event: {event_type}/{message_key}")
+        self._schedule_broadcast(payload)
