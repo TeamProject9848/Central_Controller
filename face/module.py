@@ -72,9 +72,15 @@ class FaceModule(FaceInterface):
         self._emit_current_pose_prompt()
 
     def cancel_registration(self, session_id: Optional[str] = None) -> None:
+        from core.event_bus import FaceEventType
         if self._registration and (session_id is None or session_id == self._registration.session_id):
             self._registration.state = RegistrationState.CANCELLED
-            self._emit_prompt('registration_failed', self._registration.session_id, FaceConfig.PRIORITY_CRITICAL)
+            self._emit_event(
+                FaceEventType.REGISTRATION_FAILED,
+                message_key='registration_failed',
+                session_id=self._registration.session_id,
+                priority=FaceConfig.PRIORITY_CRITICAL,
+            )
             self._registration.last_prompt_key = None
         self._mode = FaceMode.IDLE
         self._registration = None
