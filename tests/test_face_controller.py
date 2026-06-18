@@ -85,3 +85,52 @@ def test_person_left_event_sends_person_left_to_flutter():
 
     assert len(left_events_sent) == 1
     assert left_events_sent[0] == '42'
+
+
+def test_face_module_frame_distribution_gating():
+    from core.controller import AppMode
+    from core.state_machine import SystemState
+    from unittest.mock import MagicMock
+
+    controller = CentralController()
+    mock_face = MagicMock()
+    mock_face.is_running = True
+    controller.register_face_module(mock_face)
+
+    # By default, app mode is AppMode.DANGER
+    assert controller.current_mode == AppMode.DANGER
+
+    frame = MagicMock()
+    controller._distribute_frame(frame)
+    # Since current_mode is DANGER, on_frame should not be called on face module
+    mock_face.on_frame.assert_not_called()
+
+    # Change app mode to face
+    controller.set_app_mode("face")
+    assert controller.current_mode == AppMode.FACE
+
+    controller._distribute_frame(frame)
+    mock_face.on_frame.assert_called_once_with(frame)
+
+    # Reset mock and enter ALERT state
+    mock_face.reset_mock()
+    controller._state_machine.transition(SystemState.ALERT)
+    controller._distribute_frame(frame)
+    # Under ALERT state, on_frame should not be called
+    mock_face.on_frame.assert_not_called()
+
+
+def test_set_app_mode_resets_face_module():
+    from unittest.mock import MagicMock
+    controller = CentralController()
+    mock_face = MagicMock()
+    controller.register_face_module(mock_face)
+
+    controller.set_app_mode("face")
+    mock_face.cancel_registration.assert_not_called()
+
+    # Switch away from face mode
+    controller.set_app_mode("danger")
+    mock_face.cancel_registration.assert_called_once()
+    mock_face.set_mode.assert_called_once_with('idle')
+

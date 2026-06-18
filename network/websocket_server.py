@@ -76,6 +76,9 @@ class CompanionWebSocketServer:
                     )
 
                 elif msg_type == "face_intent":
+                    if self.controller.current_mode.value != "face":
+                        logger.warning(f"Ignored face intent '{payload.get('intent')}' because current app mode is {self.controller.current_mode.value}")
+                        continue
                     intent = payload.get("intent", "")
                     logger.info(f"Face intent received: {intent}")
                     

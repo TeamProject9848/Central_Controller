@@ -166,7 +166,12 @@ class CentralController:
                 self._sign_module.on_frame(frame)
             except Exception as e:
                 logger.error(f'Sign module on_frame raised: {e}', exc_info=True)
-        if self._face_module and self._face_module.is_running:
+        if (
+            self.current_mode == AppMode.FACE
+            and self._face_module
+            and self._face_module.is_running
+            and (current_state not in (SystemState.ALERT, SystemState.ACTIVE_WALK_OVERRIDE))
+        ):
             try:
                 self._face_module.on_frame(frame)
             except Exception as e:
@@ -250,6 +255,10 @@ class CentralController:
         if current_state == SystemState.ACTIVE_WALK_OVERRIDE:
             if event.event_type not in (IntentEventType.STOP_NAVIGATION,):
                 logger.debug(f'Intent {event.event_type.name} ignored — in OVERRIDE mode')
+                return
+        if event.event_type in (IntentEventType.START_FACE_REGISTRATION, IntentEventType.CANCEL_FACE_REGISTRATION, IntentEventType.IDENTIFY_FACE):
+            if self.current_mode != AppMode.FACE:
+                logger.warning(f"Ignored face intent event {event.event_type.name} because current mode is {self.current_mode.name}")
                 return
         handlers = {IntentEventType.START_NAVIGATION: lambda e: self._handle_start_navigation(), IntentEventType.STOP_NAVIGATION: lambda e: self._handle_stop_navigation(), IntentEventType.REQUEST_CAPTION: lambda e: self._handle_request_caption(), IntentEventType.REQUEST_OCR: lambda e: self._handle_request_ocr(), IntentEventType.START_FACE_REGISTRATION: self._handle_start_face_registration, IntentEventType.CANCEL_FACE_REGISTRATION: self._handle_cancel_face_registration, IntentEventType.IDENTIFY_FACE: self._handle_identify_face, IntentEventType.UNKNOWN: lambda e: self._handle_unknown_intent()}
         handler = handlers.get(event.event_type)
@@ -644,6 +653,14 @@ class CentralController:
                 self._sign_module.reset()
             except Exception as e:
                 logger.error(f"Failed to reset sign language module: {e}", exc_info=True)
+
+        # Reset face module state when switching away from face mode
+        if mode != "face" and self._face_module:
+            try:
+                self._face_module.cancel_registration()
+                self._face_module.set_mode('idle')
+            except Exception as e:
+                logger.error(f"Failed to reset face module: {e}", exc_info=True)
 
         if mode == "danger":
             self.current_mode = AppMode.DANGER
